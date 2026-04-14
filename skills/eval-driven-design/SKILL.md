@@ -1,0 +1,267 @@
+---
+name: eval-driven-design
+description: "指导如何用实验驱动 Agent 设计：假设命名 + 前后对比评分 + 位置/措辞 A/B 测试 + 模型发布验证门"
+user-invocable: true
+argument-hint: "<目标项目路径或模块名>"
+---
+
+# 实验驱动设计方法论 (Eval-Driven Design)
+
+> 从 Claude Code 源码注释中提取的设计方法论 — 每条 prompt 指令都用假设 → 实验 → 评分 → 迭代的流程验证
+
+## 核心思想
+
+**不要拍脑袋写 prompt——跑 eval。** CC 团队对每条记忆指令都用编号假设（H1-H6）、前后对比评分（0/3 → 3/3）、多变体测试（标题措辞、位置、强度）来验证效果。源码注释里记录了完整的实验轨迹。
+
+---
+
+## 一、CC 源码中的 Eval 实验记录（原文）
+
+### 实验 1：标题措辞影响行为触发
+
+```typescript
+// src/memdir/memoryTypes.ts:241-244 — 原文
+// Header wording matters: 
+//   "Before recommending" (action cue at the decision point) → 3/3
+//   "Trusting what you recall" (abstract) → 0/3
+// Same body text — only the header differed.
+```
+
+**教训**：行动导向（"做 X 之前"）比抽象概念（"关于 X 的态度"）有效得多。模型需要在决策点被触发，不是在读概念时。
+
+### 实验 2：指令位置比内容更重要
+
+```typescript
+// src/memdir/memoryTypes.ts:229-232 — 原文
+// H1 (verify function/file claims): 0/2 → 3/3 via appendSystemPrompt. 
+// When buried as a bullet under "When to access", dropped to 0/3 — 
+// position matters. The H1 cue is about what to DO with a memory, 
+// not when to look, so it needs its own section-level trigger context.
+```
+
+**教训**：同样的验证规则，作为子弹点藏在其他 section 下 → 0/3；给独立 H2 标题 → 3/3。**位置是独立变量**，和内容同样重要。
+
+### 实验 3："即使用户要求也不做"需要显式声明
+
+```typescript
+// src/memdir/memoryTypes.ts:192-194 — 原文
+// H2: explicit-save gate. 
+// Eval-validated (memory-prompt-iteration case 3, 0/2 → 3/3): 
+// prevents "save this week's PR list" → activity-log noise.
+
+"These exclusions apply even when the user explicitly asks you to save."
+```
+
+**教训**：排除规则如果不显式覆盖"用户主动要求"的场景，模型会"听话地犯错"。
+
+### 实验 4：沉默确认需要提醒模型主动捕捉
+
+```typescript
+// src/memdir/memoryTypes.ts:60-61 — 原文
+"Corrections are easy to notice; confirmations are quieter — watch for them."
+```
+
+**教训**：不提醒 → 模型只存纠正。加了"confirmations are quieter — watch for them" → 开始同时存纠正和确认。
+
+### 实验 5：模型换代时的回归检测
+
+```typescript
+// src/constants/prompts.ts:237 — 原文
+// False-claims mitigation for Capybara v8 (29-30% FC rate vs v4's 16.7%)
+// @[MODEL LAUNCH]: un-gate once validated on external via A/B
+```
+
+**教训**：新模型版本可能在某些维度回归。v4 → v8 false-claim rate 从 16.7% 涨到 29-30%，需要专门的 prompt 缓解措施 + A/B 验证门。
+
+### 实验 6：部分成功也有价值
+
+```typescript
+// src/memdir/memoryTypes.ts:233-235 — 原文
+// H5 (read-side noise rejection): 0/2 → 3/3 via appendSystemPrompt, 
+// 2/3 in-place as a bullet. Partial because "snapshot" is intuitively 
+// closer to "when to access" than H1 is.
+```
+
+**教训**：appendSystemPrompt 变体 3/3，in-place 变体 2/3。不是非黑即白——部分成功说明概念和位置有亲和性差异。
+
+---
+
+## 二、CC 的 Eval 方法论提取
+
+### Step 1：命名假设
+
+```
+H1: 回忆前验证文件/函数声明
+H2: 显式保存门（即使用户要求也拒绝噪音）
+H5: 读取侧噪音过滤（快照 ≠ 当前状态）
+H6: 分支污染防护（"忽略记忆" ≠ "承认后覆盖"）
+```
+
+**规则**：每个假设有唯一编号，方便在代码注释中引用（`// H1 went 3/3`）。
+
+### Step 2：定义评分标准
+
+```
+CC 用的是 pass/fail 式评分：
+  3/3 = 3 个 eval case 全部通过
+  0/3 = 全部失败
+  2/3 = 部分通过
+
+每个 eval case 是一个具体场景：
+  case 3: 用户要求保存 PR 列表 → Agent 应该拒绝并反问
+  case 5: 用户说"忽略记忆" → Agent 不应该再提及记忆内容
+```
+
+### Step 3：控制变量测试
+
+CC 测试的变量类型：
+
+| 变量 | 测试方式 | 发现 |
+|------|---------|------|
+| **标题措辞** | 行动提示 vs 抽象描述 | 行动提示 3/3，抽象 0/3 |
+| **位置** | 独立 section vs 子弹点 | 独立 3/3，子弹点 0/3 |
+| **注入方式** | appendSystemPrompt vs in-place | append 3/3，in-place 2/3 |
+| **覆盖强度** | 有/无"即使用户要求" | 有 3/3，无 0/2 |
+| **模型版本** | v4 vs v8 | v8 false-claim 29% vs v4 17% |
+
+### Step 4：记录到代码注释
+
+```typescript
+// 格式：
+// {假设名} ({eval 文件名}, {日期}): {before} → {after} {via 变体}
+// 解释为什么这个分数
+
+// 示例：
+// H1 (memory-prompt-iteration.eval.ts, 2026-03-17): 0/2 → 3/3 via appendSystemPrompt
+// When buried as bullet: 0/3 — position matters
+```
+
+### Step 5：已知缺口标注
+
+```typescript
+// Known gap: H1 doesn't cover slash-command claims (0/3 on the /fork case —
+// slash commands aren't files or functions in the model's ontology).
+```
+
+**不假装 100% 解决了**——记录已知缺口，让后续迭代知道哪里还需要改进。
+
+---
+
+## 三、模型发布验证门（MODEL LAUNCH Gate）
+
+CC 用 `@[MODEL LAUNCH]` 注释标记需要在新模型上线前验证的 prompt 调整：
+
+```typescript
+// @[MODEL LAUNCH]: capy v8 thoroughness counterweight (PR #24302) 
+//   — un-gate once validated on external via A/B
+
+// @[MODEL LAUNCH]: capy v8 assertiveness counterweight (PR #24302)
+//   — un-gate once validated on external via A/B
+
+// @[MODEL LAUNCH]: Update comment writing for Capybara 
+//   — remove or soften once the model stops over-commenting by default
+```
+
+**流程**：
+1. 新模型内部测试发现行为变化（如 v8 false-claim 率从 17% 涨到 30%）
+2. 写 prompt 缓解措施
+3. 标记 `@[MODEL LAUNCH]`，加 feature flag 门控
+4. 内部 A/B 验证通过
+5. 外部 A/B 验证通过
+6. 摘除门控，成为正式 prompt
+
+---
+
+## 四、安全验证驱动（HackerOne/PR Review）
+
+CC 的安全设计也是实验驱动的，但实验来源不同：
+
+```typescript
+// src/tools/BashTool/bashSecurity.ts
+// "This check catches the eval bypass discovered in HackerOne review."
+// → 安全检查的"eval"来自白帽攻击报告
+
+// src/tools/BashTool/bashPermissions.ts:603
+// "intentional for allow rules (see HackerOne #3543050)"
+// → 特定行为经过安全报告确认为设计预期
+
+// src/tools/BashTool/pathValidation.ts:1160-1171
+// "Hit 3× in PR #21075, twice more in PR #21503"
+// → 安全审查轮次记录（3 轮 review，每轮发现新边界）
+```
+
+---
+
+## 五、实现模板
+
+```python
+class EvalFramework:
+    """Agent prompt 的实验驱动设计框架"""
+
+    def __init__(self, eval_dir: str):
+        self.eval_dir = eval_dir
+        self.hypotheses: dict[str, Hypothesis] = {}
+
+    def define_hypothesis(self, id: str, description: str, variants: list[dict]):
+        """定义假设 + 变体"""
+        self.hypotheses[id] = Hypothesis(
+            id=id,
+            description=description,
+            variants=variants,  # [{"name": "action_cue", "prompt": "..."}, ...]
+            results={},
+        )
+
+    async def run_eval(self, hypothesis_id: str, eval_cases: list[dict]) -> dict:
+        """对每个变体跑所有 eval case"""
+        h = self.hypotheses[hypothesis_id]
+        for variant in h.variants:
+            passed = 0
+            for case in eval_cases:
+                result = await self._run_case(variant["prompt"], case)
+                if result.passed:
+                    passed += 1
+            h.results[variant["name"]] = f"{passed}/{len(eval_cases)}"
+        return h.results
+
+    def generate_code_comment(self, hypothesis_id: str) -> str:
+        """生成注释（嵌入到 prompt 代码旁边）"""
+        h = self.hypotheses[hypothesis_id]
+        lines = [f"// {h.id} ({h.description}):"]
+        for variant, score in h.results.items():
+            lines.append(f"//   {variant}: {score}")
+        return "\n".join(lines)
+
+# 使用示例
+eval = EvalFramework("evals/memory-prompt/")
+
+eval.define_hypothesis("H1", "verify function/file claims", [
+    {"name": "as_bullet", "prompt": "- If memory names a file: check exists"},
+    {"name": "as_section", "prompt": "## Before recommending\n\nIf memory names a file: check exists"},
+])
+
+results = await eval.run_eval("H1", [
+    {"input": "memory says utils.py has foo()", "expected": "grep for foo()"},
+    {"input": "memory says config has DEBUG flag", "expected": "check config"},
+])
+# results = {"as_bullet": "0/2", "as_section": "2/2"}
+```
+
+---
+
+## 六、实施步骤
+
+请分析用户的 $ARGUMENTS 中指定的项目，然后：
+
+1. **给关键 prompt 指令命名假设**（H1, H2, ...）
+2. **定义 eval case**：每个假设至少 3 个具体场景
+3. **控制变量**：一次只变一个维度（措辞/位置/强度/注入方式）
+4. **记录分数到代码注释**：`// H1: 0/2 → 3/3 via section header`
+5. **标注已知缺口**：不假装 100% 解决
+6. **模型换代时重跑 eval**：新模型可能在已验证的维度上回归
+7. **安全相关用真实攻击验证**：HackerOne 报告 > 理论分析
+
+**反模式警告**：
+- 不要拍脑袋写 prompt — 跑 eval
+- 不要只测"能不能工作" — 测"在哪个位置/哪种措辞下工作最好"
+- 不要假设新模型行为不变 — v4 → v8 false-claim 率翻倍
+- 不要把 eval 结果只放在文档里 — 放在代码注释里，紧挨着被验证的代码
