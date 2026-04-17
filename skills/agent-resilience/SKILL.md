@@ -1,7 +1,7 @@
 ---
 name: agent-resilience
 description: "Agent 运行时恢复：分散在 query.ts 中的独立恢复路径 + services/compact/ 中的真实压缩模块 + feature-gated 的实验性恢复机制"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 
@@ -111,6 +111,57 @@ query.ts 中每轮 API 调用前的压缩顺序（`lines 379-543`）：
 ```
 
 **不是"5 级渐进式"——是按固定顺序执行，每步独立判断是否需要。** 步骤 2、3、4 是 feature-gated，在外部构建中可能不存在。
+
+---
+
+## 7. Context Anxiety：容量感知导致的认知性提前收尾
+
+> 来源：Anthropic "Harness design for long-running application development" 显式命名的失败模式：
+> 
+> *Agents begin prematurely concluding their work when they approach what they perceive to be their context limit.*
+
+**定义**：Agent 感知到上下文接近上限时，在任务未完成的情况下草草收尾——这是**认知失败**（模型主观判断"该结束了"），不是**内存失败**（上下文真的装不下了）。
+
+**关键区别**：
+| 失败类型 | 真实状态 | 解药 |
+|---------|---------|------|
+| 内存失败（prompt_too_long） | 上下文真满了 | 压缩 / context reset（本 skill 前文已覆盖） |
+| **Context anxiety** | 还有余量但模型觉得该收了 | 目标锚点 + 收尾前校验 |
+
+**历史证据**（来自同一文章）：
+> With Opus 4.6 largely eliminating this behavior on its own, we were able to drop context resets entirely in favor of auto-compaction.
+
+→ **这是"harness 组件假设会过期"最清晰的案例**：context-reset 基础设施是为了治 context anxiety 而建的，模型升级后这个假设失效，整块脚手架可以被移除。**每次模型大版本升级都应该压测一次 context anxiety 是否仍是问题**（参见 `architecture-invariants` 的 assumption registry）。
+
+### 三种锚点策略（按成本递增）
+
+| 策略 | 实现 | 成本 | 何时用 |
+|------|------|------|------|
+| **目标钉死** | 每 N 轮在 user context 里重述原始目标 | 几 token/轮 | 长任务默认开 |
+| **收尾前校验** | 模型说 "done/finished" 前，强制一步"重读原始目标 + 列未完项" | 1 轮延迟 | 生产环境默认开 |
+| **外化进度** | `feature_list.json` 等结构化文件承载状态，模型读文件而非依赖上下文 | 每轮 1 文件读写 | 跨 session 的长运行 agent |
+
+**外化进度最关键**：当任务状态写在文件里，模型"感觉 context 快满了"不再等价于"任务数据快丢了"——容量焦虑和任务完整性解耦。
+
+### 检测用例（加入你的 eval 套件）
+
+```python
+# 测试 1：注入大文件读取中途
+messages = [
+    user("实现一个用户注册流程，包含 5 个验证规则"),
+    assistant("开始实现..."),
+    # 注入：让 agent 读 50k token 的无关日志
+    tool_result(huge_log_content),
+]
+# 断言：agent 继续实现 5 个规则，不是"我已经完成了初步工作"
+
+# 测试 2：模拟 80% 上下文占用
+messages = pad_to_80_percent_context(real_conversation)
+messages.append(user("继续实现第 3 条规则"))
+# 断言：agent 实现规则 3，不是"让我总结一下目前进度"
+```
+
+**pass^3 ≥ 2/3 才算通过**——一次恰好表现好不算数，要看压力下的稳定性。
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: multi-agent-design
 description: "多 Agent 执行：5 条真实分支（async bg / sync fg / teammate / fork / remote）+ runAgent 查询循环生成器 + LocalAgentTask 后台生命周期"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 
@@ -324,6 +324,79 @@ class TaskNotification:
 <result>{self.result or ''}</result>
 </task-notification>"""
 ```
+
+---
+
+## 角色分层：Planner / Generator / Evaluator
+
+> 来源：Anthropic "Effective harnesses for long-running agents"。**短任务用单 Agent 够用；任务跨多个 sprint、需要跨会话衔接时，三角色分工显著优于"让一个 Agent 自己规划自己执行自己自评"**。
+
+### 三个角色的职责边界
+
+| 角色 | 只做 | 绝不做 | 失效模式 |
+|------|------|--------|---------|
+| **Planner** | 把 1-4 句需求扩展为完整规格（feature_list.json + 验收标准 + 依赖顺序） | 不执行、不写实现代码 | 过度设计 / 提前定死实现 |
+| **Generator** | one-feature-at-a-time 实现，sprint 末做客观自检（跑测试、看 diff） | 不自评质量、不决定是否通过 | self-eval blind spot（见下） |
+| **Evaluator** | 独立 context 读 Generator 产出 + 用 Playwright/curl 端到端验证，打分并给出可执行反馈 | 不修改代码、不替 Generator 决定下一步 | 过于宽容 → 需要校准为"怀疑主义者" |
+
+**关键不对称**：
+> Calibrating an independent evaluator to be skeptical proved easier than getting generators to critique their own work.
+> — Anthropic, 同一引用
+
+直白说：**让评估 agent 挑刺**比**让生成 agent 自己承认错**容易——这是设计三角色而非两角色的根本理由。
+
+### Sprint Contract：三角色之间的接口
+
+Generator 和 Evaluator 开始工作前，先用结构化文件签订一次性契约：
+
+```json
+// sprint-contract.json（Planner 产出，双方读）
+{
+  "sprint_id": "S-07",
+  "goal": "用户可在 /settings 切换主题，刷新后保持",
+  "scope_in": ["theme toggle UI", "localStorage 持久化", "初始加载读取"],
+  "scope_out": ["账号级同步", "系统偏好检测"],
+  "exit_criteria": [
+    "Playwright: 切换主题后刷新仍保持",
+    "新测试全绿 + 旧测试无回归",
+    "bundle 大小增量 < 5KB"
+  ],
+  "deadline_sprints": 1,
+  "escalate_if": ["scope 超出", "exit_criteria 某项无法达成"]
+}
+```
+
+**硬规则**：
+- 未写入 `exit_criteria` 的验证维度，Evaluator 不要主动扣分（防范围蠕变）
+- `scope_out` 里的东西，Generator 碰了就是违约（Evaluator 应直接打回，不要"顺便改了也挺好"）
+- `escalate_if` 命中时，Generator 和 Evaluator 都停手，回到 Planner 重新签订
+
+### 工件交接的目录结构
+
+```
+project/
+├── sprint-contract.json     # Planner 写，双方读
+├── claude-progress.txt      # Generator 叙述性追加（append-only）
+├── feature_list.json        # Planner 初始化，Generator 更新状态
+├── evaluator-report.md      # Evaluator 每 sprint 末产出
+└── .sprint-lock             # Evaluator 通过才清除，未通过 Generator 不进下一 sprint
+```
+
+**为什么是 JSON 不是 Markdown**：模型编辑 Markdown 会顺手改格式；改 JSON 必须保持结构合法 → 跨 sprint 追踪稳定。
+
+### 何时**不**用三角色
+
+- **单 sprint、目标清晰的改动**：一个 Agent 直接做完，加三角色只是开销
+- **探索性调研**：Planner 无法预先写 exit_criteria（不知道答案长什么样），这时候用 gather→act→verify 单 Agent 循环
+- **硬实时交互**：三角色协作有延迟（sprint contract + eval 回合），用户等不起
+- **团队工作流已有人类 reviewer**：Evaluator 角色由人担任，Generator 是 Agent 就够
+
+### 反模式
+
+- 不要让 Generator 同时扮演 Evaluator（self-eval blind spot 的成因，见 `agent-reflection`）
+- 不要让 Evaluator 直接改代码（失去独立判断视角，降级为"另一个 Generator"）
+- 不要把 sprint_contract 写成自由文本——结构化字段才能被程序化校验 scope 是否溢出
+- 不要跳过 `exit_criteria` 直接开工（Generator 会把"看起来 OK"当通过）
 
 ---
 
