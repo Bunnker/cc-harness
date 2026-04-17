@@ -384,6 +384,77 @@ project/
 
 **为什么是 JSON 不是 Markdown**：模型编辑 Markdown 会顺手改格式；改 JSON 必须保持结构合法 → 跨 sprint 追踪稳定。
 
+### 跨 Sprint 启动仪式：新 Generator 如何醒来
+
+> 来源：Anthropic "Effective harnesses for long-running agents" 明确列出的 5 步启动序列。
+>
+> 长任务跨多个 sprint 时，**每个 sprint 开始的 Generator 是一个新的 Agent 实例**，没有前一 sprint 的 context。工件文件是它唯一的记忆源。不固定启动仪式，Generator 会跳过关键状态直接开工 → 重复已完成工作、破坏 scope 边界、漏掉 escalate 点。
+
+**Sprint 开始时 Generator 必须执行的 5 步（顺序不可换）**：
+
+```
+1. pwd                              # 确认自己在哪——防止启动路径漂移
+2. git log -20 --oneline            # 近 20 次提交——上个 sprint 实际改了什么
+3. cat claude-progress.txt | tail   # 上个 sprint 最后的叙述状态
+4. jq '.' feature_list.json         # 结构化任务清单——done / in_progress / pending
+5. bash init.sh                     # 恢复运行环境（deps / 启动服务 / 环境变量）
+```
+
+**每步揭示什么**：
+| 步骤 | 揭示 | 若跳过的后果 |
+|------|------|------------|
+| pwd | 工作目录锚点 | 在错误路径里 grep，得到空结果后瞎猜 |
+| git log | 代码侧真实状态（不会说谎） | 信任 progress 叙述，但 git 已回滚了——重复做已撤销的改动 |
+| progress | 人类可读的"为什么"链 | 只看代码不知道上个 sprint 为什么中断 |
+| feature_list | 结构化的待办 | 做已完成的 feature / 漏掉阻塞依赖 |
+| init.sh | 环境恢复 | 端口占用 / 依赖缺失 / 环境变量丢失，跑测试全错 |
+
+**工件冲突时的决策规则**（git 是唯一仲裁者）：
+```
+progress 说"实现了 X" + git log 里没有 X 相关 commit
+  → 信 git：上个 Generator 叙述了但没提交，或 commit 被回滚
+  → 更新 feature_list 把 X 标回 in_progress
+  → 在 progress 追加 "[reconciled: X not in git, reopened]"
+
+feature_list 说"X done" + 测试证明 X 坏了
+  → 信测试：feature_list 的 done 标记不等于质量验收
+  → 这是 Evaluator 的工作域，Generator 不自己翻案，升级 escalate
+```
+
+### One-Feature-at-a-Time：Generator 的 scope 防蠕变规则
+
+> 同样来自 Anthropic。Generator 在 sprint 中**只实现 feature_list 里 in_progress 状态的那一个**，不管同时看到其他 pending 项多诱人。
+
+```json
+// feature_list.json 状态流转
+"status": "pending" → "in_progress" → "ready_for_review"
+                                        ↓
+                              Evaluator 判定 → "done" | "rework"
+```
+
+**规则**：
+- 同一时刻最多 1 个 `in_progress`（Planner 初始化时保证）
+- Generator 完成后改为 `ready_for_review`，**不自己改成 `done`**（这是 Evaluator 的职责）
+- 如果实现过程中发现必须动到其他 pending feature → ESCALATE 回 Planner，不顺手做
+
+**为什么**：一次一个 feature 让 diff 小、Evaluator 易读、回滚成本低。Generator 倾向"顺便也改了相关的"——这是 scope creep 的第一步，sprint contract 的 `scope_in` 就是为了约束它。
+
+### Sprint 末的自评边界（降级不可替代）
+
+Generator 在提交给 Evaluator 前必须做**客观**自检（跑测试、跑 linter、看 diff 规模），但**不做主观判断**（"这个实现优雅不优雅"）：
+
+```
+Generator 的 sprint 末输出：
+  ✓ 测试：通过 12/12（客观）
+  ✓ Lint：0 warnings（客观）
+  ✓ Diff 大小：+147 -23（客观）
+  ✓ 覆盖 exit_criteria：1/1 已测（客观）
+  ✗ 不写："我觉得实现得很好"
+  ✗ 不写："这个方案应该没问题"
+```
+
+**原因**：主观判断命中 self-eval blind spot（见 `agent-reflection` §7）。客观指标是 Evaluator 决策的输入，主观夸奖只会污染判断。
+
 ### 何时**不**用三角色
 
 - **单 sprint、目标清晰的改动**：一个 Agent 直接做完，加三角色只是开销
