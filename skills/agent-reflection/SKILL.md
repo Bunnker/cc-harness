@@ -1,7 +1,7 @@
 ---
 name: agent-reflection
 description: "Agent 反思与进化：feedback 记忆（纠正+确认）+ extractMemories 模块（615 行）+ autoDream 模块（324 行）+ denialTracking（45 行）+ 3 组 eval 实验注释"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 
@@ -176,6 +176,76 @@ renamed, removed, or never merged. Before recommending it:
 ```
 
 **这是 prompt engineering 指令，不是代码级验证。** 模型收到这条指令后自行决定是否 grep/check。没有硬编码的"回忆前自动验证"逻辑。
+
+---
+
+## 7. Self-Evaluation Blind Spot：自评盲点与外部校验
+
+> 来源：Anthropic "Effective harnesses for long-running agents" + "Demystifying evals for AI agents" 显式命名的失败模式：
+> 
+> *When asked to evaluate the work they produced, agents tended to confidently praise their work — even when the quality was obviously mediocre to a human observer.*
+
+**定义**：让 Agent 评估自己刚产出的工作，它会倾向于认为"一切良好"——这是系统性偏差，不是个别模型的问题。**和 context anxiety 并列为当前最重要的两个 harness 设计驱动力**。
+
+**成因**（Anthropic 原文）：
+> Calibrating an independent evaluator to be skeptical proved easier than getting generators to critique their own work.
+
+→ 直白说：让一个 fresh-context 的评估 agent 怀疑，比让产出 agent 自我怀疑**容易得多**。设计上应该接受这个不对称，而不是试图修好"自我批评"。
+
+### 三种外部校验信号（按成本递增）
+
+| 信号源 | 实现 | 可靠性 | 局限 |
+|--------|------|--------|------|
+| **1. 确定性 Oracle** | 测试、linter、schema 校验、类型检查、编译 | 最高（0/1 二值） | 只覆盖能被自动判断的维度 |
+| **2. 独立 Evaluator Agent** | 新 context、新 session 的 Agent 读 diff + 运行验收脚本 | 高（可校准） | 成本比自评高 2-3×，但远低于人工 |
+| **3. 人类反馈循环** | 用户纠正/确认，进入 feedback 记忆（本 skill 开头已覆盖） | 最高但最慢 | 延迟大、样本稀疏 |
+
+**组合规则**：
+- 有 Oracle 可用 → 永远先跑 Oracle（`harness-verify` 已落实）
+- Oracle 无法覆盖的质量维度（设计合理性、用户体验、代码可读性）→ 独立 Evaluator
+- Evaluator 不确定的边界 → 用户反馈
+
+**不应做**：跳过 Oracle 直接让 Agent 自评"代码是否合理"——这是把 self-eval blind spot 当成唯一信号源。
+
+### 独立 Evaluator 的校准提示模板
+
+直接问"这个对吗？" → Evaluator 倾向说对。改问法：
+
+```
+你在审查一段代码 / 一份设计。假设它 **有问题**。请列出：
+1. 最可能出错的 3 个地方（不是"可能优化的地方"）
+2. 每个地方的失败场景（具体输入 → 具体错误输出）
+3. 如果只能修一个，修哪个？为什么？
+
+规则：
+- 不要说"看起来不错" / "总体合理"——这不是评估，是投票
+- 如果找不到真实问题，明确输出 "NO_ISSUES_FOUND"
+- NO_ISSUES_FOUND 会被记录并用于后续校准
+```
+
+**为什么管用**：问"假设有问题"激活了怀疑先验；要求具体失败场景过滤掉空泛夸奖；允许 NO_ISSUES_FOUND 避免"为挑刺而挑刺"的噪音。
+
+### 盲点识别的自我提示（降级方案，只在没有独立 Evaluator 时用）
+
+当确实没有独立 Evaluator（如单 Agent 场景），可以用以下结构化提示降低自评 bias——**但这只是降级，不是替代**：
+
+```
+完成工作后，不要直接说"done"。回答：
+1. 刚才最有可能出错的地方是什么？（一句话）
+2. 如果用户来验，他们最可能在哪里发现问题？（一句话）
+3. 我有没有跳过任何 exit_criteria？（列出原文 vs 我做的）
+4. 基于 1-3，我的置信度是 [HIGH / MEDIUM / LOW]
+```
+
+**关键**：要求模型输出 MEDIUM/LOW 的具体条件，否则一律输出 HIGH。Anthropic 的文章点明了这一点——自评的默认结论就是"一切良好"，必须显式创造"不良好"的可观测证据。
+
+### 何时接受"无法消除盲点"
+
+- 探索性调研（没有 exit_criteria，Evaluator 无从校准）
+- 开放创意任务（"设计一个有趣的 UI"——没有客观失败定义）
+- 成本敏感的高频小任务（每次都请 Evaluator 经济上不成立）
+
+**这些场景下承认盲点存在，不要假装做了 self-eval 就等于通过了**——把"未经外部校验"作为状态诚实返回给用户，让用户决定是否信任。
 
 ---
 

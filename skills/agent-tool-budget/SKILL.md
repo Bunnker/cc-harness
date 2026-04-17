@@ -1,22 +1,161 @@
 ---
 name: agent-tool-budget
-description: "指导如何设计 Agent 工具预算管理：延迟加载 + 结果截断 + 描述预算 + token budget 自动续跑"
-user-invocable: true
+description: "指导如何设计 Agent 工具预算管理：两条独立预算线（工具数量 vs token）+ 三层工具数（Registered Pool / Visible Catalog / Fully-Loaded Schemas）+ Schema 延迟加载 + 结果截断 + 描述 1% 预算 + token budget 自动续跑。工具数量阈值为本仓库工程启发式，非 Anthropic 官方量化。"
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 
 # Agent 工具预算管理 (Agent Tool Budget)
 
-> 参考实现：Claude Code `src/tools/ToolSearchTool/` + `src/utils/api.ts` + `src/query/tokenBudget.ts`
-> — 工具 schema 延迟加载、工具结果大小限制、Skill 描述 1% 预算、输出 token 自动续跑
+> 参考实现：Claude Code `src/tools.ts` + `src/tools/ToolSearchTool/` + `src/utils/api.ts` + `src/query/tokenBudget.ts`
+> — 工具数量控制、schema 延迟加载、工具结果大小限制、Skill 描述 1% 预算、输出 token 自动续跑
+>
+> **姊妹 skill**：`tool-authoring` 讲"单个工具怎么写"，本 skill 讲"工具集怎么管"。
 
 ## 核心思想
 
-**Agent 的 context 是稀缺资源——工具描述、工具结果、输出 token 都在争夺同一个窗口。** CC 对每个环节都有独立的预算控制，防止任何一个环节吃掉整个 context。核心策略：**不需要的不加载，太大的截断，用完了自动续跑。**
+**Agent 的 context 是稀缺资源——工具描述、工具结果、输出 token 都在争夺同一个窗口。** CC 对每个环节都有独立的预算控制，防止任何一个环节吃掉整个 context。
+
+### 两条独立的预算线（容易混淆）
+
+```
+线 A：token 预算       线 B：工具数量预算
+────────────────      ──────────────────
+衡量：context 字节     衡量：可见工具条目数
+瓶颈：硬上限 200K      瓶颈：模型"选择成本"
+对策：延迟加载 + 截断   对策：默认集裁剪 + defer
+```
+
+**这两条会互相影响但优化手段不同**：
+- 工具描述很短（10 词）但 100 个工具 → 线 A 没爆，但线 B 让模型"选不对"
+- 工具只有 3 个但每个 prompt 5000 字 → 线 B 没爆，但线 A 吃 context
+
+Anthropic 官方对线 A（格式/上下文开销）的建议见 [Building Effective Agents](https://www.anthropic.com/research/building-effective-agents)；对线 B（MCP 工具 defer 加载）的记录见 [How Claude Code Works](https://code.claude.com/docs/en/how-claude-code-works) 的 *"MCP tool definitions are deferred by default and loaded on demand via tool search"*。**官方并没有给出"多少工具太多"的硬数字**——下文的具体阈值（Simple = 3 / 默认完整 schema 集 ≈ 15-20）来自本仓库对 CC 源码（`src/tools.ts`）的实测读数，属**本项目的工程启发式**，不是 Anthropic 指南。
+
+核心策略：**不需要的不加载（线 A+B），看得见的要精选（线 B），太大的截断（线 A），用完了自动续跑（线 A 输出侧）。**
 
 ---
 
-## 一、工具 Schema 延迟加载
+## 一、工具数量预算（线 B）
+
+### 三个必须区分的"工具数"
+
+讨论规模前先锁术语。工具数有三层，**数量从大到小，混用就会互相打架**：
+
+| 术语 | 含义 | 数量来源 | 典型量级 |
+|------|------|---------|---------|
+| **注册池 (Registered Pool)** | 代码里声明并注册过的全部 Tool 实例（含特性门控/MCP server 全部暴露的） | `src/tools.ts:getAllBaseTools()` + `_build_registry()` 返回值 | CC：40+，cc-python：26+ |
+| **可见目录 (Visible Catalog)** | 初始 prompt 里模型**能看到的条目**（含 deferred 的名字和短描述） | 注册池 − 被 deny rule / feature gate 屏蔽的 | CC：30-50，cc-python：~26 |
+| **完整 Schema 集 (Fully-Loaded Schemas)** | 初始 prompt 里**带 `input_schema` 的条目**（deferred 工具不算，只有 ToolSearch 激活后才加入） | 可见目录 − deferred 条目 | **这是选择成本最敏感的指标** |
+
+**本 skill 下文所有"N 个工具"都特指"完整 Schema 集"，除非标注。**
+
+### 三种阈值的职责
+
+| 阈值 | 针对层 | 性质 | 来源 |
+|------|-------|------|------|
+| Simple 档 = **3**（Bash/Read/Edit） | 完整 Schema 集 | 硬编码常量 | `src/tools.ts:272-298` 读码 |
+| 推荐默认 = **完整 Schema 集控制在 <20** | 完整 Schema 集 | **本项目工程启发式** | 本仓库经验，非 Anthropic |
+| 注册池可以 **40+** | 注册池 | 无上限（靠 defer 控制暴露） | 实测 CC 行为 |
+
+> **注意**：前一版本把 "<20" 当成 Anthropic 官方量化。核查后，Anthropic 官方文档只给"MCP 默认 defer"的定性说法，**没有给具体数字**。本 skill 用的 <20 是**本仓库工程实测经验**，不是引用。如果你要用到生产，建议自己在目标场景做 eval 确认。
+
+### 问题
+
+当**完整 Schema 集**超过 ~20 条，模型倾向于：
+1. 在工具选择上消耗更多"思考 token"（推理前反复列举、对比）
+2. 选错工具（特别是语义接近的，比如多个 MCP server 都有 `Read`）
+3. 放弃调用工具（直接用自然语言回答，明明有工具可用）
+
+这是**选择成本随工具数超线性增长**的经验现象，不仅是 token 字节的问题。
+
+### CC 的三档规模
+
+CC 源码用**环境变量 + 特性门控**把三层工具数分成三档（`src/tools.ts:272-298`）。下表**严格区分"初始 prompt 带 schema 的"与"runtime 扩展后的"**，避免 §一 定义被自己违反。
+
+| 档位 | 触发方式 | 初始 Schema 集（Fully-Loaded） | Runtime 扩展可达 | 注册池 | 场景 |
+|------|---------|-----------------------------|-----------------|--------|------|
+| **Simple** | `CLAUDE_CODE_SIMPLE=1` | 基础 **3**：`Bash / Read / Edit`；**COORDINATOR_MODE=on 时 6**（追加 `AgentTool / TaskStopTool / SendMessageTool`） | 同左（Simple 档不启用 ToolSearch 和 MCP） | 基础 3 / coordinator 模式 6 | 学习 / 最小 agent / 单目的脚本 |
+| **默认** | 普通启动（非 simple） | **~15-20**（无条件 base + 符合条件的特性门控） | 初始 Schema 集 **+ ToolSearch 激活的 deferred 内置工具 + Skill 展开的** | **40+**（含未激活的 feature-gated 和所有 `shouldDefer=true` 的内置） | 日常开发 |
+| **Enterprise** | 默认档 + MCP servers | **~15-20**（**MCP 工具也默认 `defer`**，不进初始 Schema 集，与默认档相同） | 默认档 Runtime 扩展 **+ ToolSearch 激活的 MCP 工具**（`mcp__<srv>__*`） | **40-60+**（全部 registered，含未加载的 MCP + 未激活的特性门控） | 多工具协作、IDE 集成 |
+
+> **两个要点**：
+> 1. **默认档本身就有 deferred 内置工具**（`shouldDefer=true` 的 built-in），通过 ToolSearch 激活。不是"必须装 MCP 才能用 defer"。
+> 2. **Enterprise 档和默认档的初始 Schema 集量级相同**（都 ~15-20），差异只在 Runtime 扩展列里是否包含 MCP。"15-20"不是因为 Enterprise 没工具，而是 MCP 工具默认 defer 不进"初始 Schema 集"——这正是 §一 三层术语想说清楚的事。
+>
+> Simple 档的意义不是"给小白用"，而是**提示最小可运行集合是什么**。写新 agent 从 Simple 档起步，按需加工具，比从 40 个里删更清晰。
+
+**源码引用**（`src/tools.ts:287-296`）：
+
+```typescript
+const simpleTools: Tool[] = [BashTool, FileReadTool, FileEditTool]
+// When coordinator mode is also active, include AgentTool and TaskStopTool
+if (feature('COORDINATOR_MODE') && coordinatorModeModule?.isCoordinatorMode()) {
+  simpleTools.push(AgentTool, TaskStopTool, getSendMessageTool())  // +3 → 共 6
+}
+return filterToolsByDenyRules(simpleTools, permissionContext)
+```
+
+### 三种规模裁剪的技术手段
+
+```
+技术手段              → 效果
+─────────────────    ─────────────────────────────────
+1. 特性门控             → 按环境变量 on/off 整批工具
+2. Deny rules (config) → 用户/管理员静态禁用某工具
+3. shouldDefer + ToolSearch → 进 prompt 但不含 schema
+4. 命名空间前缀        → `mcp__<srv>__*` 避免跨源冲突
+5. Skill 声明式         → Skill 只在被调用时展开到工具
+```
+
+四种手段可组合。CC 的 MCP 工具同时用了 2（可 deny）、3（默认 defer）、4（前缀隔离）。
+
+### MCP 工具的特殊处理
+
+**默认所有 MCP 工具 defer**，因为：
+1. MCP 服务器数量可变（一个开发机可能连 10+ 个 server）
+2. 每个 server 可能暴露 5-20 个工具
+3. 累积起来很容易超过 40 个条目
+4. 模型一次用到的通常只是一两个 server
+
+```typescript
+// src/tools.ts — isDeferredTool()
+function isDeferredTool(tool): boolean {
+  if (tool.alwaysLoad) return false
+  if (tool.isMcp) return true              // ← MCP 默认 defer
+  if (tool.name === 'ToolSearch') return false
+  return tool.shouldDefer === true
+}
+```
+
+**效果**：初始 prompt 里 MCP 工具只有**名字和一句短描述**（~10 token/工具），schema 不加载。模型需要时用 `ToolSearch` 发现并激活。
+
+### 命名空间与冲突避免
+
+MCP 工具的 name 强制前缀 `mcp__<server>__<tool>`：
+
+```
+内置：        Read
+MCP server A: mcp__filesystem__read
+MCP server B: mcp__s3__read
+```
+
+这让**三个"Read"共存**不互相干扰。代价是 token 多占一点，收益是跨源可并存。Skill 内部定义的工具通常不加前缀（由 Skill 加载器保证无冲突）。
+
+### 选择成本的反面：可发现性
+
+裁剪不是越狠越好。反向陷阱：**工具藏太深模型永远想不到去用**。
+
+CC 的平衡：
+- **核心工具**（Bash/Read/Edit）**永不 defer**，一定在初始 prompt
+- **Skill 列表**常驻（1% 预算，详见 §四）——让模型至少知道"有这些可能性"
+- **MCP server 列表**（不是工具）常驻——`/mcp` 命令可查
+
+**设计原则**：**入口常驻，细节按需**。模型要能看到"有没有"，用的时候再看"怎么用"。
+
+---
+
+## 二、工具 Schema 延迟加载
 
 ### 问题
 
@@ -75,7 +214,7 @@ if (descriptionTokens < threshold && pendingMcpServers === 0) {
 
 ---
 
-## 二、工具结果大小限制
+## 三、工具结果大小限制
 
 ### 问题
 
@@ -119,7 +258,7 @@ for (const msg of messages) {
 
 ---
 
-## 三、Skill 描述预算
+## 四、Skill 描述预算
 
 ### 问题
 
@@ -160,7 +299,7 @@ function formatSkillsWithinBudget(skills, contextTokens) {
 
 ---
 
-## 四、Prompt Cache 稳定性 — 排序 + Schema 缓存键
+## 五、Prompt Cache 稳定性 — 排序 + Schema 缓存键
 
 ### 工具列表排序保证 Cache Hit
 
@@ -225,7 +364,7 @@ prompt(options): string               // 完整提示（发给 API 的 tool desc
 
 ---
 
-## 五、输出 Token Budget 自动续跑
+## 六、输出 Token Budget 自动续跑
 
 ### 问题
 
@@ -300,7 +439,9 @@ Level 2: 注入续跑消息（最多 3 次）
 
 ---
 
-## 五、预算分配全景
+## 七、预算分配全景（两条预算线的会合）
+
+### 线 A：Token 预算（字节视角）
 
 ```
 ┌─────────────── Context Window（200K tokens）──────────────┐
@@ -323,9 +464,54 @@ Level 2: 注入续跑消息（最多 3 次）
   用户指定 +500K → 自动续跑到 90% + 递减收益检测
 ```
 
+### 线 B：工具数量预算（条目视角）
+
+> 下图按"**完整 Schema 集** → **可见目录** → **注册池**"三层展开。数字是本仓库对 CC 的实测建议，不是 Anthropic 官方量化。
+
+```
+┌─── 完整 Schema 集（模型能直接调用）──────────┐
+│                                              │
+│  ★ 核心工具（永不 defer）      3-6   条      │
+│      Bash / Read / Edit / Grep / Glob        │
+│      + 项目高频自定义工具                    │
+│                                              │
+│  ○ 默认集（初始 prompt 含 schema）+ ~12-15 条 │
+│      Write / Agent / WebFetch / Notebook     │
+│      + 按特性门控激活的工具                  │
+│                                              │
+│  合计建议上限 < 20 条（工程启发式）           │
+└──────────────────────────────────────────────┘
+           ↑ 以下不计入"完整 Schema 集"
+┌─── 可见目录（名字 + 短描述可见）──────────┐
+│                                            │
+│  ▸ Skill 列表（描述常驻 / 内容按需）1% 预算│
+│                                            │
+│  ▸ MCP 工具（默认 defer）                  │
+│      `mcp__<server>__*` name + search_hint │
+│      ToolSearch 激活后才加入完整 Schema 集 │
+└────────────────────────────────────────────┘
+           ↑ 以下不计入"可见目录"
+┌─── 注册池（代码里声明但未暴露给模型）────┐
+│  feature-gated 未激活的工具               │
+│  deny-rule 屏蔽的工具                     │
+│  全量 MCP server 里 ToolSearch 未加载的   │
+└───────────────────────────────────────────┘
+```
+
+### 两条线的互相影响矩阵
+
+| 场景 | 线 A 压力 | 线 B 压力 | 典型对策 |
+|------|----------|----------|---------|
+| 工具少（<10）但 prompt 很长 | 高 | 低 | 精简 prompt；启用 defer 只发名字 |
+| 工具多（>40）但每个描述短 | 中 | 高 | 裁剪默认集到核心；MCP 全 defer |
+| Skill/MCP 爆炸（100+ 条目） | 高 | 高 | Skill 1% 预算；MCP defer；ToolSearch |
+| 单轮工具结果巨大（500KB） | 高 | — | `maxResultSizeChars` 持久化到磁盘 |
+| 对话多轮累积 | 高 | — | 旧结果微压缩清除 + 主动 compact |
+| 模型选错工具频率高 | — | 高 | 裁剪语义相近工具；强化 prompt 边界说明 |
+
 ---
 
-## 六、实现模板
+## 八、实现模板
 
 ### 工具结果预算
 
@@ -387,23 +573,135 @@ class DescriptionBudget:
         return core_text + '\n' + '\n'.join(f"- {i['name']}" for i in rest)
 ```
 
+### 工具数量预算（线 B）
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class ToolScaleBudget:
+    """按"条目预算"裁剪工具集，与 token 预算正交。"""
+    max_always_loaded: int = 20          # 初始 prompt 里完整 schema 的工具上限
+    core_tools: set[str] = field(default_factory=set)  # 核心工具，永不 defer
+
+    def classify(self, tools: list) -> tuple[list, list]:
+        """返回 (always_loaded, deferred) 两组。"""
+        always, deferred = [], []
+        for t in tools:
+            # 1. 核心 + alwaysLoad 永不 defer
+            if t.name in self.core_tools or getattr(t, 'always_load', False):
+                always.append(t)
+                continue
+            # 2. MCP 工具默认 defer
+            if getattr(t, 'is_mcp', False):
+                deferred.append(t)
+                continue
+            # 3. 显式标记的 defer
+            if getattr(t, 'should_defer', False):
+                deferred.append(t)
+                continue
+            always.append(t)
+
+        # 4. 超出上限 → 把 always 末尾的（非核心）移到 deferred
+        if len(always) > self.max_always_loaded:
+            overflow = [t for t in always if t.name not in self.core_tools]
+            overflow = overflow[self.max_always_loaded:]
+            deferred.extend(overflow)
+            always = [t for t in always if t not in overflow]
+
+        return always, deferred
+
+    def render_for_prompt(self, always: list, deferred: list) -> dict:
+        """初始 prompt 里展示的两段。"""
+        return {
+            "full_tools": [t.get_schema() for t in always],   # 完整 schema
+            "deferred_catalog": [                             # 只有名字+一句描述
+                {"name": t.name, "hint": t.search_hint or t.short_description}
+                for t in deferred
+            ],
+        }
+
+# 用法：
+budget = ToolScaleBudget(
+    max_always_loaded=20,
+    core_tools={"Bash", "Read", "Edit", "Grep", "Glob"},
+)
+always, deferred = budget.classify(all_tools)
+# always 进初始 prompt，deferred 通过 ToolSearch 激活
+```
+
 ---
 
-## 七、实施步骤
+## 九、实施步骤
 
-请分析用户的 $ARGUMENTS 中指定的项目，然后：
+请分析用户的 $ARGUMENTS 中指定的项目，然后**按两条预算线分别盘点与实施**：
 
-1. **盘点 context 消耗**：system prompt、工具描述、工具结果、对话历史各占多少
-2. **工具 schema 延迟加载**：工具超过 20 个时，非核心工具标记 shouldDefer
-3. **工具结果限制**：每个工具设置 maxResultSize，超出持久化到磁盘
-4. **描述预算**：如果有 Skill/Plugin 列表，设置 token 预算 + 三级降级
-5. **微压缩**：旧工具结果随时间自动清除，释放空间
-6. **输出 token 管理**：支持 max_output_tokens 升级 + 续跑 + 递减收益检测
-7. **预算仪表盘**：记录每个组件的 token 消耗，找出优化点
+### 线 B：工具数量预算（先做，影响 A）
 
-**反模式警告**：
-- 不要所有工具的 schema 都在首轮发送 — 延迟加载节省 60%
-- 不要让 Read 工具的结果被持久化 — 会造成循环读取
-- 不要截断核心功能的描述 — 核心功能可发现性 > 空间节省
-- 不要无限续跑 — 递减收益检测防止无意义的 token 消耗
-- 不要忘了旧结果的时间衰减 — 10 轮前的 `ls` 结果不再有价值
+1. **数核心工具** — 用户 90% 时间用哪 3-6 个？这是"永不 defer"名单。
+2. **列默认集** — **完整 Schema 集**上限建议 < 20（本仓库工程启发式）。超出的按规则（MCP 默认 / shouldDefer 标记 / 语义相近合并）移到"可见目录"层（走 ToolSearch）或直接留在"注册池"（feature gate off）。
+3. **MCP 工具默认 defer** — 只在初始 prompt 暴露 `name + search_hint`，schema 由 ToolSearch 按需加载。
+4. **命名空间隔离** — 多源工具加前缀（`mcp__<srv>__*`）防冲突。
+5. **Skill 入口常驻** — Skill 列表给 1% 预算（三级降级），Skill 内容只在被激活时展开。
+
+### 线 A：Token 预算（后做，精细化）
+
+6. **盘点 context 消耗**：system prompt、工具 schema（按 §七 的分段）、工具结果、对话历史各占多少 token。
+7. **工具结果限制**：每个工具设置 `max_result_size_chars`，超出持久化到磁盘 + 模型收到摘要。Read 工具例外（`Infinity`）防循环读。
+8. **描述预算**：Skill/Plugin 列表走 1% 预算 + 三级降级。内置优先级永远保留完整描述。
+9. **微压缩**：旧工具结果（>10 轮）自动替换为占位符。
+10. **输出 token 管理**：支持 `max_output_tokens` 升级（8K → 64K 一次性）+ 续跑（最多 3 次）+ 递减收益检测（连续两轮增量 <500 才停）。
+11. **预算仪表盘**：`/context` 类命令显示每组件的 token 占用，找优化点。
+
+### 反模式警告
+
+**线 B 相关**：
+- ❌ 不要把所有可能用到的工具都加进默认集 — 选择成本比 token 成本更隐蔽
+- ❌ 不要一次 defer 核心工具 — 看不见就不会被用
+- ❌ 不要让工具命名语义相近（`read` / `fetch` / `load` 三个工具都能读文件）— 模型会猜错
+
+**线 A 相关**：
+- ❌ 不要所有工具的 schema 都在首轮发送 — 延迟加载节省 60%
+- ❌ 不要让 Read 工具的结果被持久化 — 会造成循环读取
+- ❌ 不要截断核心功能的描述 — 核心功能可发现性 > 空间节省
+- ❌ 不要无限续跑 — 递减收益检测防止无意义的 token 消耗
+- ❌ 不要忘了旧结果的时间衰减 — 10 轮前的 `ls` 结果不再有价值
+
+---
+
+## 十、与 `tool-authoring` 的协同
+
+两个 skill 是"**微观 + 宏观**"的关系：
+
+| 维度 | `tool-authoring`（单个工具） | `agent-tool-budget`（工具集） |
+|------|----------------------------|----------------------------|
+| 关注点 | 一个工具的四层合同、三层 prompt、错误语义 | 多个工具的规模控制、加载策略、预算 |
+| 输出 | 一个高质量工具定义 | 一个高效可扩展的工具池 |
+| 关键字段 | `isReadOnly / isConcurrencySafe / isDestructive / description / prompt` | `shouldDefer / alwaysLoad / maxResultSizeChars / searchHint` |
+| 反面 | 写成万能工具（`file_op` 做 Read+Edit+Delete） | 把所有工具都加进默认集 |
+| 成本度量 | 单次调用 token + 调用正确率 | 总工具数 + 常驻 schema token |
+
+**协同的决策顺序**：
+
+```
+1. tool-authoring：把每个工具写得精简且职责单一
+        ↓
+2. agent-tool-budget：把这些工具分三档（核心 / 默认 / defer）
+        ↓
+3. tool-authoring（回看）：如果 token 吃不消，回去精简 prompt
+```
+
+两者**不可相互替代**：
+- 只做 tool-authoring：工具很好但集合臃肿，模型选不对
+- 只做 agent-tool-budget：裁剪干净但每个工具写得糟，模型调不对
+
+### 何时看哪个
+
+| 症状 | 先看 |
+|------|------|
+| 模型频繁选错工具 | `tool-authoring` §2「三层 Prompt 结构」Level 2 段（使用指南/边界说明） |
+| 模型不用本该用的工具 | `agent-tool-budget` §一 可发现性 或 `tool-authoring` §2「三层 Prompt 结构」Level 1 段（description） |
+| 首轮 API 请求 context 已超 10% | `agent-tool-budget` §二 Schema 延迟加载 |
+| 工具结果单次超 50K | `agent-tool-budget` §三 maxResultSizeChars |
+| 模型对同名工具混淆（多 MCP server） | `agent-tool-budget` §一 命名空间前缀 |
+| 工具参数格式错误率高 | `tool-authoring` §2「三层 Prompt 结构」Level 3 段（字段 `.describe()`） |

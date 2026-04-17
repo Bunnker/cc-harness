@@ -1,0 +1,1318 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "orchestration",
+      "title": "协调层",
+      "role": "non-worker",
+      "default_stage": null,
+      "default_target_path_policy": "not_applicable",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "direct"
+    },
+    {
+      "id": "harness-infrastructure",
+      "title": "Harness 基础设施层",
+      "role": "worker",
+      "default_stage": null,
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "situational",
+      "default_invocation_mode": "internal_only"
+    },
+    {
+      "id": "foundation-contracts",
+      "title": "基础契约层",
+      "role": "worker",
+      "default_stage": "stage-0-contracts",
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "agent-core",
+      "title": "Agent 核心层",
+      "role": "worker",
+      "default_stage": null,
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "capability-extensions",
+      "title": "能力扩展层",
+      "role": "worker",
+      "default_stage": null,
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "production",
+      "title": "生产化层",
+      "role": "worker",
+      "default_stage": "stage-7-production",
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "long-session",
+      "title": "长会话扩展层",
+      "role": "worker",
+      "default_stage": "stage-3-long-session",
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "memory-extensions",
+      "title": "记忆扩展层",
+      "role": "worker",
+      "default_stage": "stage-4-memory",
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "ide-input",
+      "title": "IDE / 输入扩展层",
+      "role": "worker",
+      "default_stage": "stage-5-extensibility",
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "enterprise",
+      "title": "企业 / 生产化扩展层",
+      "role": "worker",
+      "default_stage": "stage-8-enterprise",
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "retain",
+      "default_invocation_mode": "orchestrated"
+    },
+    {
+      "id": "methodology",
+      "title": "方法论",
+      "role": "worker",
+      "default_stage": null,
+      "default_target_path_policy": "coordinator_defined",
+      "default_value_assessment": "situational",
+      "default_invocation_mode": "direct"
+    }
+  ],
+  "skills": [
+    {
+      "name": "agent-architecture-curriculum",
+      "path": "skills/agent-architecture-curriculum",
+      "category": "orchestration",
+      "stage": null,
+      "portability": "portable",
+      "purpose": "课程化文档生成器，不作为设计/编码/审计 worker 使用",
+      "best_for": null,
+      "depends_on": [],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "not_applicable",
+      "value_assessment": "retain",
+      "notes": []
+    },
+    {
+      "name": "agent-loop",
+      "path": "skills/agent-loop",
+      "category": "agent-core",
+      "stage": "stage-1-minimal-loop",
+      "portability": "portable",
+      "purpose": "循环状态机 + 退出条件 + 流式执行",
+      "best_for": "构建主循环",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [
+        "agent-memory"
+      ],
+      "parallel_mode": "contextual",
+      "needs_user_context": "技术栈",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "agent-memory",
+      "path": "skills/agent-memory",
+      "category": "agent-core",
+      "stage": "stage-4-memory",
+      "portability": "cc-bound",
+      "purpose": "4 类型记忆 + 双路径保存 + 过期检测",
+      "best_for": "构建跨会话记忆",
+      "depends_on": [
+        "agent-loop"
+      ],
+      "parallel_safe_with": [
+        "agent-reflection（仅设计阶段）"
+      ],
+      "parallel_mode": "contextual",
+      "needs_user_context": "存储选型",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "agent-reflection",
+      "path": "skills/agent-reflection",
+      "category": "agent-core",
+      "stage": "stage-4-memory",
+      "portability": "cc-bound",
+      "purpose": "纠正+确认学习 + auto-dream",
+      "best_for": "构建自我改进机制",
+      "depends_on": [
+        "agent-memory"
+      ],
+      "parallel_safe_with": [
+        "agent-memory（仅设计阶段）"
+      ],
+      "parallel_mode": "contextual",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "agent-resilience",
+      "path": "skills/agent-resilience",
+      "category": "agent-core",
+      "stage": "stage-3-long-session",
+      "portability": "cc-bound",
+      "purpose": "Withhold + 5 级恢复 + 5 级压缩",
+      "best_for": "构建错误恢复和长会话",
+      "depends_on": [
+        "agent-loop",
+        "context-engineering"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "agent-tool-budget",
+      "path": "skills/agent-tool-budget",
+      "category": "agent-core",
+      "stage": "stage-2-security",
+      "portability": "cc-bound",
+      "purpose": "延迟加载 + 结果截断 + token 续跑",
+      "best_for": "优化工具 token 消耗",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [
+        "layered-permission"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "api-client-layer",
+      "path": "skills/api-client-layer",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "多 Provider API 客户端",
+      "best_for": "构建 LLM 调用层",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "unified-tool-interface",
+        "config-cascade"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "Provider 选型",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "architecture-invariants",
+      "path": "skills/architecture-invariants",
+      "category": "methodology",
+      "stage": null,
+      "portability": "cc-bound",
+      "purpose": "6 条不变式 + 进化轨迹",
+      "best_for": "架构评审/决策记录",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "eval-driven-design"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "situational",
+      "notes": [
+        "专家直连入口：用于定向架构咨询，不替代 harness 的 state/trace 治理。"
+      ]
+    },
+    {
+      "name": "auth-identity",
+      "path": "skills/auth-identity",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "认证 + 安全存储 + 多租户",
+      "best_for": "构建认证系统",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "config-cascade"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "安全要求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "command-sandbox",
+      "path": "skills/command-sandbox",
+      "category": "capability-extensions",
+      "stage": "stage-2-security",
+      "portability": "cc-bound",
+      "purpose": "23 项 Bash 安全检查",
+      "best_for": "构建命令执行安全层",
+      "depends_on": [
+        "layered-permission"
+      ],
+      "parallel_safe_with": [
+        "agent-tool-budget"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "compact-system",
+      "path": "skills/compact-system",
+      "category": "long-session",
+      "stage": "stage-3-long-session",
+      "portability": "portable",
+      "purpose": "4 级压缩流水线 + 微压缩 + SM Compact",
+      "best_for": "构建上下文压缩系统",
+      "depends_on": [
+        "context-engineering"
+      ],
+      "parallel_safe_with": [
+        "session-memory（仅设计阶段）"
+      ],
+      "parallel_mode": "contextual",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "concurrent-dispatch",
+      "path": "skills/concurrent-dispatch",
+      "category": "agent-core",
+      "stage": "stage-3-long-session",
+      "portability": "cc-bound",
+      "purpose": "并发分区调度 + 错误级联",
+      "best_for": "构建工具执行调度器",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "contextual",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "config-cascade",
+      "path": "skills/config-cascade",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "5 源配置级联 + 热重载",
+      "best_for": "构建配置系统",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "api-client-layer",
+        "unified-tool-interface"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "专家直连入口：用于定向架构咨询，不替代 harness 的 state/trace 治理。"
+      ]
+    },
+    {
+      "name": "context-engineering",
+      "path": "skills/context-engineering",
+      "category": "agent-core",
+      "stage": "stage-3-long-session",
+      "portability": "portable",
+      "purpose": "多源 system prompt + 渐进压缩",
+      "best_for": "构建上下文管理",
+      "depends_on": [
+        "agent-loop"
+      ],
+      "parallel_safe_with": [
+        "agent-resilience"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "模型选择",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "eval-driven-design",
+      "path": "skills/eval-driven-design",
+      "category": "methodology",
+      "stage": null,
+      "portability": "cc-bound",
+      "purpose": "假设命名 + A/B 评分",
+      "best_for": "迭代 prompt 设计",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "architecture-invariants"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "situational",
+      "notes": [
+        "专家直连入口：用于定向架构咨询，不替代 harness 的 state/trace 治理。"
+      ]
+    },
+    {
+      "name": "event-hook-system",
+      "path": "skills/event-hook-system",
+      "category": "capability-extensions",
+      "stage": "stage-5-extensibility",
+      "portability": "cc-bound",
+      "purpose": "声明式事件拦截 + 决策合并",
+      "best_for": "构建事件扩展点",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "plugin-loading"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "feature-flag-system",
+      "path": "skills/feature-flag-system",
+      "category": "production",
+      "stage": "stage-7-production",
+      "portability": "cc-bound",
+      "purpose": "构建期 DCE + 运行期缓存",
+      "best_for": "构建特性门控",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "startup-optimization",
+        "telemetry-pipeline"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "harness",
+      "path": "skills/harness",
+      "category": "orchestration",
+      "stage": null,
+      "portability": "portable",
+      "purpose": "Coordinator 自身，只生成计划和汇总，不作为 worker 调度",
+      "best_for": null,
+      "depends_on": [],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "not_applicable",
+      "value_assessment": "retain",
+      "notes": []
+    },
+    {
+      "name": "harness-entry-points",
+      "path": "skills/harness-entry-points",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "CLI/SDK/Bridge 统一入口",
+      "best_for": "设计多形态入口",
+      "depends_on": [
+        "unified-tool-interface",
+        "config-cascade"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": "运行形态需求",
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "专家直连入口：用于定向架构咨询，不替代 harness 的 state/trace 治理。"
+      ]
+    },
+    {
+      "name": "harness-lite",
+      "path": "skills/harness-lite",
+      "category": "orchestration",
+      "stage": null,
+      "portability": "portable",
+      "purpose": "Lite Coordinator：只处理叶子模块、小范围补丁与 <= 2 文件的快路径任务",
+      "best_for": null,
+      "depends_on": [],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "not_applicable",
+      "value_assessment": "retain",
+      "notes": []
+    },
+    {
+      "name": "harness-verify",
+      "path": "skills/harness-verify",
+      "category": "harness-infrastructure",
+      "stage": null,
+      "portability": "portable",
+      "purpose": "编码/审计轮完成后的验证 Worker：执行 commands、生成 diff、产出 verification.md + scorecard.json + commands.log。",
+      "best_for": "编码/审计轮的最后一个串行验证步骤",
+      "depends_on": [],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "internal_only",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "situational",
+      "notes": [
+        "编码/审计轮必须作为最后一个串行组调度。"
+      ]
+    },
+    {
+      "name": "ide-feedback-loop",
+      "path": "skills/ide-feedback-loop",
+      "category": "ide-input",
+      "stage": "stage-5-extensibility",
+      "portability": "portable",
+      "purpose": "LSP 多服务器 + 诊断基线 + 被动反馈",
+      "best_for": "构建 IDE 代码质量闭环",
+      "depends_on": [
+        "mcp-runtime",
+        "event-hook-system"
+      ],
+      "parallel_safe_with": [
+        "tip-system",
+        "voice-input"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "IDE 集成需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "instruction-file-system",
+      "path": "skills/instruction-file-system",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "4 层指令遍历 + 条件规则",
+      "best_for": "构建指令加载系统",
+      "depends_on": [
+        "config-cascade"
+      ],
+      "parallel_safe_with": [
+        "auth-identity"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "专家直连入口：用于定向架构咨询，不替代 harness 的 state/trace 治理。"
+      ]
+    },
+    {
+      "name": "layered-permission",
+      "path": "skills/layered-permission",
+      "category": "agent-core",
+      "stage": "stage-2-security",
+      "portability": "portable",
+      "purpose": "权限评估链 + bypass-immune",
+      "best_for": "构建权限控制",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [
+        "agent-tool-budget"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "安全要求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "magic-docs",
+      "path": "skills/magic-docs",
+      "category": "memory-extensions",
+      "stage": "stage-4-memory",
+      "portability": "portable",
+      "purpose": "标记检测 + 后台子 Agent 文档更新",
+      "best_for": "构建自动维护文档",
+      "depends_on": [
+        "agent-loop",
+        "event-hook-system"
+      ],
+      "parallel_safe_with": [
+        "team-memory-sync"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "mcp-runtime",
+      "path": "skills/mcp-runtime",
+      "category": "capability-extensions",
+      "stage": "stage-5-extensibility",
+      "portability": "portable",
+      "purpose": "MCP 发现/连接/映射",
+      "best_for": "集成 MCP 协议",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": "MCP 需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "model-routing",
+      "path": "skills/model-routing",
+      "category": "capability-extensions",
+      "stage": "stage-5-extensibility",
+      "portability": "portable",
+      "purpose": "动态模型选择 + 订阅层级",
+      "best_for": "构建模型路由",
+      "depends_on": [
+        "api-client-layer"
+      ],
+      "parallel_safe_with": [
+        "plan-mode"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "用户层级",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "multi-agent-design",
+      "path": "skills/multi-agent-design",
+      "category": "agent-core",
+      "stage": "stage-6-multi-agent",
+      "portability": "cc-bound",
+      "purpose": "Fork/Coordinator/Team 编排",
+      "best_for": "构建多 Agent 系统",
+      "depends_on": [
+        "agent-loop",
+        "concurrent-dispatch"
+      ],
+      "parallel_safe_with": [
+        "model-routing"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "协作需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "plan-mode",
+      "path": "skills/plan-mode",
+      "category": "capability-extensions",
+      "stage": "stage-5-extensibility",
+      "portability": "cc-bound",
+      "purpose": "思考/执行分离 + 审批",
+      "best_for": "构建计划审批机制",
+      "depends_on": [
+        "layered-permission"
+      ],
+      "parallel_safe_with": [
+        "model-routing"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "platform-integration",
+      "path": "skills/platform-integration",
+      "category": "enterprise",
+      "stage": "stage-7-production",
+      "portability": "portable",
+      "purpose": "防休眠 + 跨平台通知",
+      "best_for": "构建平台适配层",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "runtime-summaries",
+        "voice-input"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "平台需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "plugin-loading",
+      "path": "skills/plugin-loading",
+      "category": "capability-extensions",
+      "stage": "stage-5-extensibility",
+      "portability": "cc-bound",
+      "purpose": "4 层插件加载 + 条件激活",
+      "best_for": "构建插件/扩展系统",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [
+        "event-hook-system"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "policy-limits",
+      "path": "skills/policy-limits",
+      "category": "enterprise",
+      "stage": "stage-8-enterprise",
+      "portability": "portable",
+      "purpose": "fail-open 远程策略门控",
+      "best_for": "构建企业功能管控",
+      "depends_on": [
+        "auth-identity"
+      ],
+      "parallel_safe_with": [
+        "remote-managed-settings",
+        "settings-sync"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "企业合规需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "process-lifecycle",
+      "path": "skills/process-lifecycle",
+      "category": "production",
+      "stage": "stage-7-production",
+      "portability": "portable",
+      "purpose": "信号处理 + LIFO 清理",
+      "best_for": "构建进程管理",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "telemetry-pipeline"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "prompt-cache-economics",
+      "path": "skills/prompt-cache-economics",
+      "category": "production",
+      "stage": "stage-7-production",
+      "portability": "cc-bound",
+      "purpose": "cache key 稳定性 + 成本优化",
+      "best_for": "优化 API 成本",
+      "depends_on": [
+        "agent-tool-budget",
+        "context-engineering"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "remote-managed-settings",
+      "path": "skills/remote-managed-settings",
+      "category": "enterprise",
+      "stage": "stage-8-enterprise",
+      "portability": "portable",
+      "purpose": "Checksum 增量拉取 + 安全审查",
+      "best_for": "构建企业远程配置",
+      "depends_on": [
+        "auth-identity",
+        "config-cascade"
+      ],
+      "parallel_safe_with": [
+        "policy-limits",
+        "settings-sync"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "企业合规需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "runtime-summaries",
+      "path": "skills/runtime-summaries",
+      "category": "enterprise",
+      "stage": "stage-7-production",
+      "portability": "portable",
+      "purpose": "Away/Agent/ToolUse 三粒度摘要",
+      "best_for": "构建运行时可观测性",
+      "depends_on": [
+        "multi-agent-design"
+      ],
+      "parallel_safe_with": [
+        "platform-integration"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "session-memory",
+      "path": "skills/session-memory",
+      "category": "long-session",
+      "stage": "stage-3-long-session",
+      "portability": "portable",
+      "purpose": "会话级后台记忆提取 + 10 段模板",
+      "best_for": "构建会话内记忆",
+      "depends_on": [
+        "agent-loop"
+      ],
+      "parallel_safe_with": [
+        "compact-system（仅设计阶段）"
+      ],
+      "parallel_mode": "contextual",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "session-recovery",
+      "path": "skills/session-recovery",
+      "category": "capability-extensions",
+      "stage": "stage-4-memory",
+      "portability": "cc-bound",
+      "purpose": "UUID 链 + 三层清理 + 成本持久化",
+      "best_for": "构建会话恢复",
+      "depends_on": [
+        "context-engineering"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "settings-sync",
+      "path": "skills/settings-sync",
+      "category": "enterprise",
+      "stage": "stage-8-enterprise",
+      "portability": "portable",
+      "purpose": "增量上传 + 按环境下载",
+      "best_for": "构建跨设备配置同步",
+      "depends_on": [
+        "auth-identity"
+      ],
+      "parallel_safe_with": [
+        "policy-limits",
+        "remote-managed-settings"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "speculative-execution",
+      "path": "skills/speculative-execution",
+      "category": "capability-extensions",
+      "stage": null,
+      "portability": "cc-bound",
+      "purpose": "CoW 预执行 + 边界停止",
+      "best_for": "构建预测性优化",
+      "depends_on": [
+        "agent-loop",
+        "layered-permission"
+      ],
+      "parallel_safe_with": [],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "startup-optimization",
+      "path": "skills/startup-optimization",
+      "category": "production",
+      "stage": "stage-7-production",
+      "portability": "cc-bound",
+      "purpose": "并行预取 + DCE + 分阶段启动",
+      "best_for": "优化启动性能",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "telemetry-pipeline",
+        "feature-flag-system"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "team-memory-sync",
+      "path": "skills/team-memory-sync",
+      "category": "memory-extensions",
+      "stage": "stage-4-memory",
+      "portability": "portable",
+      "purpose": "团队记忆双向同步 + 密钥扫描",
+      "best_for": "构建团队知识共享",
+      "depends_on": [
+        "agent-memory",
+        "auth-identity"
+      ],
+      "parallel_safe_with": [
+        "magic-docs"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "团队协作需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "telemetry-pipeline",
+      "path": "skills/telemetry-pipeline",
+      "category": "production",
+      "stage": "stage-7-production",
+      "portability": "portable",
+      "purpose": "多 Sink + 采样 + PII 过滤",
+      "best_for": "构建可观测性",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "startup-optimization",
+        "feature-flag-system"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "tip-system",
+      "path": "skills/tip-system",
+      "category": "ide-input",
+      "stage": "stage-5-extensibility",
+      "portability": "portable",
+      "purpose": "条件过滤 + LRU 调度 + spinner 集成",
+      "best_for": "构建上下文感知提示",
+      "depends_on": [
+        "config-cascade"
+      ],
+      "parallel_safe_with": [
+        "ide-feedback-loop",
+        "voice-input"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度,不建议用户直接调用。"
+      ]
+    },
+    {
+      "name": "tool-authoring",
+      "path": "skills/tool-authoring",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "ACI 设计指南：四层合同 + 三层 prompt + fail-safe 默认 + 错误语义分层",
+      "best_for": "撰写/审核单个 Agent 工具的质量",
+      "depends_on": [
+        "unified-tool-interface"
+      ],
+      "parallel_safe_with": [
+        "agent-tool-budget",
+        "concurrent-dispatch",
+        "layered-permission"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": null,
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度,不建议用户直接调用。",
+        "姊妹 skill：agent-tool-budget（工具集管理）讲群体，本 skill 讲单个。",
+        "理论基础来自 Anthropic《Building Effective Agents》关于 ACI 的论点。"
+      ]
+    },
+    {
+      "name": "unified-tool-interface",
+      "path": "skills/unified-tool-interface",
+      "category": "foundation-contracts",
+      "stage": "stage-0-contracts",
+      "portability": "portable",
+      "purpose": "工具抽象接口 + buildTool 工厂",
+      "best_for": "设计工具系统的第一步",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "api-client-layer",
+        "config-cascade"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "技术栈",
+      "user_invocable": true,
+      "default_invocation_mode": "direct",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "专家直连入口：用于定向架构咨询，不替代 harness 的 state/trace 治理。"
+      ]
+    },
+    {
+      "name": "voice-input",
+      "path": "skills/voice-input",
+      "category": "ide-input",
+      "stage": "stage-7-production",
+      "portability": "portable",
+      "purpose": "多平台音频捕获 + 流式 STT",
+      "best_for": "构建语音输入能力",
+      "depends_on": [],
+      "parallel_safe_with": [
+        "ide-feedback-loop",
+        "tip-system"
+      ],
+      "parallel_mode": "always",
+      "needs_user_context": "平台需求",
+      "user_invocable": false,
+      "default_invocation_mode": "orchestrated",
+      "target_path_policy": "coordinator_defined",
+      "value_assessment": "retain",
+      "notes": [
+        "默认通过 harness 调度，不建议用户直接调用。"
+      ]
+    }
+  ],
+  "parallel_groups": {
+    "always": [
+      {
+        "skills": [
+          "unified-tool-interface",
+          "config-cascade",
+          "api-client-layer"
+        ],
+        "note": "基础契约层核心模块，可同轮并行。"
+      },
+      {
+        "skills": [
+          "auth-identity",
+          "instruction-file-system"
+        ],
+        "note": "共享 config-cascade 但彼此独立。"
+      },
+      {
+        "skills": [
+          "layered-permission",
+          "agent-tool-budget"
+        ],
+        "note": "都依赖 unified-tool-interface，但互不阻塞。"
+      },
+      {
+        "skills": [
+          "plugin-loading",
+          "event-hook-system"
+        ],
+        "note": "扩展点与插件协议可以并行。"
+      },
+      {
+        "skills": [
+          "model-routing",
+          "plan-mode"
+        ],
+        "note": "分别建立模型路由与计划审批层。"
+      },
+      {
+        "skills": [
+          "startup-optimization",
+          "telemetry-pipeline",
+          "feature-flag-system"
+        ],
+        "note": "生产化基础设施互无直接依赖。"
+      },
+      {
+        "skills": [
+          "team-memory-sync",
+          "magic-docs"
+        ],
+        "note": "都位于记忆扩展层，但功能边界独立。"
+      },
+      {
+        "skills": [
+          "ide-feedback-loop",
+          "tip-system",
+          "voice-input"
+        ],
+        "note": "IDE / 输入相关能力可独立推进。"
+      },
+      {
+        "skills": [
+          "policy-limits",
+          "remote-managed-settings",
+          "settings-sync"
+        ],
+        "note": "都依赖 auth-identity，但彼此独立。"
+      },
+      {
+        "skills": [
+          "runtime-summaries",
+          "platform-integration",
+          "voice-input"
+        ],
+        "note": "面向运行体验的能力可并行建设。"
+      }
+    ],
+    "design_only": [
+      {
+        "skills": [
+          "agent-memory",
+          "agent-reflection"
+        ],
+        "note": "设计阶段可并行；编码阶段 reflection 依赖 memory。"
+      },
+      {
+        "skills": [
+          "compact-system",
+          "session-memory"
+        ],
+        "note": "设计阶段可并行；编码阶段 session-memory 依赖 compact-system。"
+      },
+      {
+        "skills": [
+          "agent-loop",
+          "concurrent-dispatch"
+        ],
+        "note": "前置 unified-tool-interface 完成后，设计可并行；编码需视接口稳定性判断。"
+      }
+    ]
+  },
+  "portability_history": [
+    {
+      "date": "initial",
+      "summary": "初始：24 个 cc-bound + 18 个 portable。"
+    },
+    {
+      "date": "2026-04-04",
+      "summary": "agent-loop / layered-permission / context-engineering 重写为 portable，变为 21 + 21。"
+    },
+    {
+      "date": "2026-04-15",
+      "summary": "阶段 0 根节点 unified-tool-interface / config-cascade / instruction-file-system / harness-entry-points 改写为 portable-first，入口治理同步收口到 8 个 direct / 36 个 orchestrated / 1 个 internal-only。"
+    },
+    {
+      "date": "2026-04-15",
+      "summary": "新增 harness-lite 作为叶子模块快路径协调器，用于 <= 2 文件、无阶段跳转的小任务。"
+    }
+  ]
+}

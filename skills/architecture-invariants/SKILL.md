@@ -222,7 +222,83 @@ After: Tree-sitter AST 解析 + regex fallback
 
 ---
 
-## 四、实施指南
+## 四、Assumption Registry：定期压测 harness 组件
+
+> 来源：Anthropic 反复强调（"Effective harnesses for long-running agents"、"Harness design for long-running application development"）：
+> 
+> *Every component in a harness encodes an assumption about what the model can't do on its own. Those assumptions are worth stress testing because they can quickly go stale as models improve.*
+
+这是本 skill 最容易被忽略、但最重要的 meta 原则。前三节记录的是"做了什么 / 不做什么 / 为什么这样进化"，本节记录**这些决策背后的假设何时过期**。
+
+### 核心观察
+
+不变式、技术债、进化决策——每一项**都基于一个关于模型能力的假设**。模型升级时假设可能失效，对应的脚手架就变成了负债而不是保护。
+
+**已发生的真实案例**（Anthropic 原文）：
+- Context reset 基础设施 → 假设"模型会 context anxiety 提前收尾" → Opus 4.6 自己修好了 → 整块脚手架被移除（换成 auto-compaction）
+- 这不是假设性讨论——Anthropic **真的删除了 context reset**
+
+**另一种方向的案例**（本 skill 第三节进化 2）：
+- regex 安全检查 → 假设"正则够用" → HackerOne 报告证伪 → 换 Tree-sitter AST
+- 假设过期方向相反：不是"模型变强了"，是"攻击面比想象大"
+
+### Assumption Registry 格式
+
+给每个主要的 harness 组件（不变式 / 工具约束 / 压缩机制 / 恢复路径 / prompt 指令）写一条假设登记：
+
+```markdown
+## ASM-1: [组件名]
+- 前提假设：[这个组件回答模型什么做不到？]
+- 证据来源：[哪次事故 / eval / 用户反馈证明需要它]
+- 过期信号：[什么观察会让我们怀疑这条假设已失效]
+- 上次压测：[YYYY-MM-DD + 模型版本]
+- 压测方法：[跑什么 eval / 看什么指标]
+- 若失效后果：[移除组件会怎样 / 需要换成什么]
+```
+
+**示例**（延续本 skill 第三节进化 1）：
+```markdown
+## ASM-A: Agent 列表作为 attachment message
+- 前提假设：模型不能容忍 tool description 中包含动态内容而不破坏 cache key
+- 证据来源：2026-Q1 cost 数据，10.2% fleet cache_creation token 浪费于 Agent 列表变化
+- 过期信号：provider 支持描述外动态字段 / cache key 算法改变
+- 上次压测：2026-03 Opus 4.6 发布时
+- 压测方法：把 Agent 列表放回 description，对比 cache_creation 变化
+- 若失效后果：可以简化架构，删除 attachment message 特例分支
+```
+
+### 触发 prune 的 4 个信号
+
+每次命中以下任一信号，**强制重审整个 registry**，不是只看被触发的那一条：
+
+| 触发器 | 为什么要重审全部 | 最少做什么 |
+|--------|----------------|----------|
+| **1. 模型大版本升级**（Opus 4.6→4.7、Sonnet 换代） | 能力提升不局限于被宣传的维度，旁支假设也可能过期 | 跑完整 eval 套件 + 重标每条 ASM 的"上次压测" |
+| **2. 框架/依赖版本跳跃**（Anthropic SDK 主版本） | 底层协议变化可能使某些 workaround 变成反模式 | 检查带 `_DEPRECATED` 的代码路径是否可以下线 |
+| **3. 相关 eval 结果反转**（原来 0/3，现在 3/3） | 单点改善可能是模型整体改善的表征 | 对相关子系统的所有 ASM 重跑压测 |
+| **4. HackerOne/安全报告**（发现绕过） | 攻击面扩大意味着假设"已覆盖"失效 | 对**所有安全相关** ASM 重审，不只是被绕过的那条 |
+
+**关键**：触发 prune 不等于立刻删除组件——是**重审假设**。结果可能是"假设仍成立，不动"、"假设弱化但保留"、"假设完全失效，可删除"三种之一。
+
+### Meta 原则：每次大版本升级重审一次
+
+```
+Opus X.Y → X.Z（小版本）：抽样重审 3-5 条 ASM
+Opus X.* → (X+1).*（大版本）：强制重审全部 ASM
+```
+
+**不允许跳过**——即使升级后没观察到任何行为变化，也必须更新"上次压测"字段。否则半年后回头看，所有 ASM 都停留在"上次压测：不知道什么时候"状态，registry 失去工程价值。
+
+### 反模式
+
+- 不要把 ASM 当文档写——**写在代码注释里**，紧挨被约束的代码（和本 skill 第一节的不变式同样的放置原则）
+- 不要只在 ASM 失效时更新——每次升级**都要**更新"上次压测"字段（即使是确认假设仍成立）
+- 不要假设"组件越多越安全"——每条脚手架都是有维护成本的债务，过期的保护比没保护更危险（会掩盖真实问题）
+- 不要让单条 ASM 失效引发全局重构——压测是决策输入，不是自动触发器
+
+---
+
+## 五、实施指南
 
 ### 建立你的不变式清单
 
@@ -264,7 +340,7 @@ After: Tree-sitter AST 解析 + regex fallback
 
 ---
 
-## 五、实施步骤
+## 六、实施步骤
 
 请分析用户的 $ARGUMENTS 中指定的项目，然后：
 
