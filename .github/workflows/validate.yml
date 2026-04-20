@@ -1,0 +1,41 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate manifest and frontmatter
+        run: |
+          python scripts/validate_manifest_schema.py
+          python scripts/validate_skill_frontmatter.py
+          python scripts/check_skill_exposure.py
+          python scripts/generate_manifest_docs.py --check
+          python scripts/generate_pack_lock.py --check
+
+      - name: Validate harness boundaries and verification
+        run: |
+          python scripts/validate_harness_lite_examples.py
+          python scripts/validate_parallel_diff_attribution.py
+          python scripts/validate_worktree_isolation.py
+
+      - name: Validate installer flow
+        run: python scripts/validate_installer_flow.py
+
+      - name: Check shell syntax
+        run: |
+          bash -n install.sh
+          bash -n skills/harness/hooks/generate-coding-traces.sh
+          bash -n skills/harness/hooks/pre-commit-check.sh
+          bash -n skills/harness/hooks/post-worker-complete.sh
+          bash -n skills/harness/hooks/post-report.sh
+          bash -n skills/harness/hooks/finalize-report.sh
