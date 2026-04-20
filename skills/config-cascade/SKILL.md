@@ -1,208 +1,249 @@
 ---
 name: config-cascade
-description: "指导如何设计 Harness 配置级联系统：5 源合并（后者覆盖前者）+ Zod 验证 + 热重载 + 源过滤"
+description: "指导如何设计多源配置级联系统：有序来源、按源校验、浅合并与规则特例、可选热重载、策略级不可被覆盖"
 user-invocable: true
 argument-hint: "<目标项目路径或模块名>"
 ---
 
-# Harness 配置级联 (Config Cascade)
+# 配置级联 (Config Cascade)
 
-> 参考实现：Claude Code `src/utils/settings/constants.ts` + `settings.ts` + `changeDetector.ts`
-> — 5 源优先级合并 + Zod 按源报错 + chokidar 热重载 + 策略可锁定源
+## 1. Problem — 多源配置不是简单 merge
 
-## 核心思想
+Agent Runtime 的配置通常同时来自：
 
-**Agent 的行为由配置驱动，但配置来自 5 个互相冲突的来源。** CC 用"后者覆盖前者 + 策略层不可覆盖 + 源可被锁定"的级联规则解决冲突，而不是简单的合并。
+- 用户全局配置
+- 项目共享配置
+- 本地私有配置
+- CLI / API 临时覆盖
+- 企业或平台策略
 
----
+常见错误是把这些来源当成一个 JSON 做深合并。这样会导致：
 
-## 一、5 源优先级（源码 constants.ts 原文）
+- 优先级不明确
+- 某个源校验失败时整套系统崩溃
+- 策略层被低优先级配置绕过
+- 热重载和溯源调试都做不清楚
 
-```typescript
-// src/utils/settings/constants.ts — 后者覆盖前者
-export const SETTING_SOURCES = [
-  'userSettings',      // 1. ~/.claude/settings.json（全局用户）
-  'projectSettings',   // 2. .claude/settings.json（项目共享，在 git 中）
-  'localSettings',     // 3. .claude/local-settings.json（项目本地，gitignored）
-  'flagSettings',      // 4. --settings CLI 参数（一次性覆盖）
-  'policySettings',    // 5. managed-settings.json / 远程 API（企业策略，最高）
-] as const
-```
-
-**谁赢**：policySettings > flagSettings > localSettings > projectSettings > userSettings
-
-**关键约束**：
-- `policySettings` 和 `flagSettings` **始终启用**，不可被 `--setting-sources` 排除
-- `projectSettings` 可以被策略禁用（防止恶意仓库注入配置）
-- 可编辑的只有 user / project / local（policy 和 flag 是只读）
+通用问题是：**如何设计一个多源配置系统，让来源顺序、合并规则、校验边界和策略优先级都可解释、可恢复、可审计。**
 
 ---
 
-## 二、设置合并策略
+## 2. In Claude Code — 源码事实（精简版）
 
-```
-每个源独立读取 → 按源顺序合并 → 后者覆盖前者
-  ↓
-对象级合并（不是深合并）：
-  userSettings:    { model: "sonnet", hooks: {...} }
-  projectSettings: { hooks: {...} }
-  localSettings:   { model: "opus" }
-  ↓
-  合并结果: { model: "opus", hooks: {...} }
-            ← localSettings 的 model 覆盖了 userSettings 的
+> `源码事实` — CC 的具体实现是一个参考，不是唯一答案。
 
-权限规则合并（特殊）：
-  所有源的 allow/deny/ask 规则 **累加** 而非覆盖
-  每条规则带 source 标签，权限评估时按规则看到来源
-```
+### CC 有 5 个配置来源
 
----
+优先级从低到高大致是：
 
-## 三、Zod 按源验证
+1. user settings
+2. project settings
+3. local settings
+4. flag settings
+5. policy / managed settings
 
-```typescript
-// 每个源独立验证，报错时告诉用户是哪个文件出错
-for (const source of enabledSources) {
-  const raw = readSettingsFile(source)
-  const result = settingsSchema.safeParse(raw)
-  if (!result.success) {
-    reportError(source, result.error)
-    // 这个源的设置被丢弃，其他源继续
-    // 不会因为一个源出错就整个设置系统崩溃
-  }
-}
-```
+高优先级覆盖低优先级，其中：
 
-**设计原则**：一个源出错不影响其他源。用户的 settings.json 格式错了 → 只丢这个源，项目级和策略级正常工作。
+- `policy` 和 `flag` 不能被普通来源禁用
+- `project` 可以被策略层禁止
+- 真正可编辑的通常只有 user / project / local
 
----
+### 合并不是一刀切
 
-## 四、热重载 — chokidar 监控 + ConfigChange Hook
+CC 的大原则是：
 
-```typescript
-// src/utils/settings/changeDetector.ts
-// chokidar 监控所有 settings 文件路径
-// 变更后 1 秒稳定期（debounce），避免保存中间态触发
+- 普通对象字段：浅合并，后者覆盖前者
+- 权限规则类字段：按规则累加，而不是整个覆盖
 
-fileChanged(path) {
-  if (isInternalWrite(path)) return  // 自己写的不触发
-  await stabilityWait(1000)          // 等 1 秒
-  const source = identifySource(path)
-  const oldValue = cache[source]
-  const newValue = readAndValidate(source)
-  if (deepEqual(oldValue, newValue)) return  // 没变
+这背后的原因是：
 
-  cache[source] = newValue
-  executeConfigChangeHooks(source)  // 触发 ConfigChange Hook
-  // → 分析器重新初始化
-  // → 事件日志重建
-  // → MCP 连接重新评估
-}
-```
+- 普通对象深合并容易制造不可预测行为
+- 安全规则经常需要多来源叠加
 
-**排除 flagSettings**：CLI 参数不会在会话中变化，而且可能是临时文件（FIFO/socket），监控会挂。
+### 校验是按源执行的
+
+每个来源分别读取、分别验证、分别报错。一个源坏掉时：
+
+- 丢弃这个源
+- 保留其他已通过校验的来源
+- 向用户指出是哪个文件/来源有问题
+
+### 热重载不是“文件一变就全重启”
+
+CC 里有稳定期、防内部写回触发、source-level change detection 等机制。重点不是具体 watcher 库，而是：
+
+- 只重载变更来源
+- 只有值真的变化才触发后续动作
+- 配置变化以事件形式通知下游
+
+### 来源过滤是安全边界的一部分
+
+企业/平台可以决定某些来源是否启用，例如禁用项目级配置，避免恶意仓库注入权限或 hook。
 
 ---
 
-## 五、源过滤 — 策略控制哪些源可用
+## 3. Transferable Pattern — Source Registry + Merge Policy + Source Validation
 
-```typescript
-// 企业可以通过 --setting-sources 限制用户只能用部分源
-// 例：--setting-sources user,local → 禁用 projectSettings
+### 核心模式
 
-function getEnabledSettingSources(): SettingSource[] {
-  const allowed = getAllowedSettingSources()  // 从 bootstrap state 读取
-  const result = new Set(allowed)
-  result.add('policySettings')   // 策略始终启用
-  result.add('flagSettings')     // CLI 参数始终启用
-  return Array.from(result)
-}
+把配置系统拆成三层：
+
+1. `source registry`
+   定义有哪些来源、顺序、是否只读、是否必须启用。
+2. `validation per source`
+   每个来源单独解析和校验，失败时只污染自己。
+3. `merge policy`
+   对不同字段族使用不同合并规则，而不是全局深合并。
+
+### 推荐数据模型
+
+```text
+ConfigSource:
+  id
+  loader()
+  validator()
+  readonly
+  mandatory
+
+ConfigSnapshot:
+  merged
+  by_source
+  errors
+  provenance
 ```
 
-**用途**：企业部署时，禁止 `projectSettings` → 恶意仓库无法通过 `.claude/settings.json` 注入配置（如放宽权限、添加 webhook 等）。
+### 关键原则
+
+1. 先保留 `by_source`，再生成 `merged`，否则调试“这个值从哪来”会很痛苦。
+2. 普通配置默认浅合并，只有明确声明的字段走累加或自定义策略。
+3. 策略级来源要么强制启用，要么拥有最终裁决权，不能被低优先级覆盖。
+4. 校验失败应该局部隔离，而不是让整个 runtime 起不来。
+5. 热重载应该围绕“来源变化事件”设计，而不是 watcher 细节。
 
 ---
 
-## 六、实现模板
+## 4. Minimal Portable Version — Python 最小实现
 
 ```python
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
 import json
 
-SOURCES_ORDER = ['user', 'project', 'local', 'flag', 'policy']
 
 @dataclass
 class ConfigSource:
     name: str
-    path: Path | None
-    data: dict = field(default_factory=dict)
+    loader: Callable[[], dict[str, Any]]
+    validator: Callable[[dict[str, Any]], dict[str, Any]]
     readonly: bool = False
+    mandatory: bool = False
+
 
 class ConfigCascade:
-    def __init__(self, sources: list[ConfigSource]):
-        self.sources = sorted(sources, key=lambda s: SOURCES_ORDER.index(s.name))
-        self._merged: dict = {}
+    def __init__(self, sources: list[ConfigSource], merge_policies: dict[str, str] | None = None):
+        self.sources = sources
+        self.merge_policies = merge_policies or {}
+        self.by_source: dict[str, dict[str, Any]] = {}
+        self.errors: dict[str, str] = {}
+        self.merged: dict[str, Any] = {}
 
-    def load(self, enabled_sources: set[str] | None = None):
-        """加载所有源，按优先级合并"""
-        self._merged = {}
+    def reload(self, enabled_sources: set[str] | None = None) -> None:
+        self.by_source = {}
+        self.errors = {}
+        self.merged = {}
+
         for source in self.sources:
-            if enabled_sources and source.name not in enabled_sources:
-                if source.name not in ('policy', 'flag'):  # 这两个始终启用
-                    continue
-            if source.path and source.path.exists():
-                try:
-                    raw = json.loads(source.path.read_text())
-                    validated = self._validate(raw, source.name)
-                    source.data = validated
-                    self._merged = {**self._merged, **validated}  # 后者覆盖前者
-                except Exception as e:
-                    print(f"Warning: {source.name} ({source.path}) invalid: {e}")
-                    # 跳过此源，不影响其他
+            if enabled_sources is not None and source.name not in enabled_sources and not source.mandatory:
+                continue
 
-    def get(self, key: str, default=None):
-        return self._merged.get(key, default)
+            try:
+                raw = source.loader()
+                validated = source.validator(raw)
+                self.by_source[source.name] = validated
+                self.merged = self._merge(self.merged, validated)
+            except Exception as exc:
+                self.errors[source.name] = str(exc)
 
-    def get_with_source(self, key: str) -> tuple[any, str]:
-        """返回 (值, 来源名称) — 调试用"""
-        for source in reversed(self.sources):  # 反向（高优先级先查）
-            if key in source.data:
-                return source.data[key], source.name
-        return None, 'default'
+    def _merge(self, base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        for key, value in incoming.items():
+            policy = self.merge_policies.get(key, "replace")
+            if policy == "append_rules":
+                merged[key] = [*(merged.get(key, [])), *value]
+            else:
+                merged[key] = value
+        return merged
 
-    def _validate(self, raw: dict, source_name: str) -> dict:
-        """按源独立验证，一个源出错不影响其他"""
-        # 实际项目用 Pydantic / JSON Schema 验证
-        return raw
+    def get_with_source(self, key: str) -> tuple[Any, str | None]:
+        for source in reversed(self.sources):
+            data = self.by_source.get(source.name, {})
+            if key in data:
+                return data[key], source.name
+        return None, None
 
-# 使用
-config = ConfigCascade([
-    ConfigSource('user', Path.home() / '.myagent/settings.json'),
-    ConfigSource('project', Path('.myagent/settings.json')),
-    ConfigSource('local', Path('.myagent/local-settings.json')),
-    ConfigSource('flag', None, readonly=True),   # CLI 参数直接注入
-    ConfigSource('policy', Path('/etc/myagent/managed.json'), readonly=True),
-])
-config.load(enabled_sources={'user', 'local', 'policy', 'flag'})
+
+def json_loader(path: Path) -> Callable[[], dict[str, Any]]:
+    def _load() -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        return json.loads(path.read_text(encoding="utf-8"))
+    return _load
 ```
+
+这个最小版表达的是：
+
+- 来源顺序显式
+- 校验按源进行
+- 合并策略按字段族定制
+- 可追踪值来源
 
 ---
 
-## 七、实施步骤
+## 5. Do Not Cargo-Cult
 
-请分析用户的 $ARGUMENTS 中指定的项目，然后：
+不要照抄这些 CC 细节：
 
-1. **确定配置来源**：至少 user + project 两级，有企业需求加 policy
-2. **定义优先级**：后者覆盖前者，policy 最高且不可关闭
-3. **按源独立验证**：一个源出错不崩溃，跳过继续
-4. **权限规则累加**：deny/allow 规则不是覆盖，是合并
-5. **热重载**：文件监控 + debounce + ConfigChange 通知
-6. **源过滤**：允许管理员禁用 projectSettings（防恶意仓库注入）
-7. **带源查询**：`get_with_source()` 方便调试"这个值从哪来的"
+- 精确的 5 个来源命名
+- `chokidar`、`Zod`、`changeDetector.ts` 的具体实现
+- 平台特定的 managed 路径
+- CC 专用的 hook 名称和初始化时机
 
-**反模式警告**：
-- 不要深合并配置对象 — CC 用浅合并（后者完整覆盖前者的同名字段）
-- 不要让 projectSettings 能覆盖 policy — 安全边界
-- 不要一个源出错就全部失败 — 隔离验证错误
-- 不要监控 CLI 参数文件 — 可能是 FIFO/socket，会挂
+真正该迁移的是：
+
+- 来源顺序是显式数据，而不是散落在代码里的 if/else
+- 校验错误局部隔离
+- 合并策略是字段族驱动，而不是全局深合并
+- 策略级来源有真正的优先权
+
+---
+
+## 6. Adaptation Matrix
+
+| 场景 | 来源建议 | 特别注意 |
+|------|----------|----------|
+| 个人 CLI 工具 | user + project + flag | 先把溯源和局部报错做清楚 |
+| 团队仓库 | user + project + local + flag | local 不应污染共享配置 |
+| 企业托管 | user + project + local + flag + policy | `policy` 必须可强制启用或禁用下游来源 |
+| SaaS 多租户 | org + workspace + user + request override | 合并规则和审计日志必须可追踪 |
+
+---
+
+## 7. Implementation Steps
+
+请分析用户的 `$ARGUMENTS`，然后：
+
+1. 枚举配置来源并定义优先级，不要先写 merge 函数。
+2. 为每个来源定义独立 loader 和 validator。
+3. 定义字段族合并策略：默认替换，规则列表等少数字段走累加。
+4. 实现 `by_source`、`merged`、`errors`、`provenance` 四类输出。
+5. 明确哪些来源是 mandatory，哪些来源可以被策略禁用。
+6. 如果要做热重载，先产出 source change event，再决定下游谁订阅。
+7. 用回归测试覆盖“单源报错不拖垮整体”“policy 覆盖 project”“规则字段累加”。
+
+验收标准：
+
+- 任意配置值都能解释来源
+- 一个来源损坏不会拖垮整个配置系统
+- 低优先级来源无法绕过策略级配置
+- 字段合并规则对调用方是可预测的
