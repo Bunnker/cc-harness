@@ -64,12 +64,22 @@
 
 **实际用时**：58 行（原估 80-120 行）。能更紧凑是因为 [PR #2](https://github.com/Bunnker/cc-harness/pull/2) 合入的 audit 升级 + M1 hooks 产生了结构化 artifact，Step 9 不用再白手起家定义数据格式，只需引用现有文件类型。
 
-### T2 · 加固 P1 #8 · harness 里的硬约束
+### T2 · 加固 P1 #8 · harness 里的硬约束 · ⛔ 推迟（2026-04-20 R7 Codex 审核否决）
+
 **现状**：R3 的启动仪式引用了 `init.sh` / `claude-progress.txt` / `feature_list.json`，但 `harness/SKILL.md` 的 Phase 1/2 没有"**必须**产出这三个工件"的硬要求。
 
-**建议**：在 `harness/SKILL.md` 的 Phase 1 SCAN 或 Phase 2 PLAN 里加条件："若 `estimated_sprints ≥ 3` 或 `current_stage` 标注为长运行阶段，Coordinator 必须在 PLAN 阶段把三个工件写入 target_paths，否则拒绝进入 EXECUTE"。
+**R7 尝试**：在 Phase 2 新增 "§2a 长运行工件硬约束" 节，引用 `stage-roadmap.long_running` 和 `state.last_execution.estimated_sprints` 两个字段做触发判定。Codex 严审发现 5 项阻塞问题（见下方预置清单），**当轮撤回**（`git restore skills/harness/SKILL.md`，未进入 commit）。
 
-**估工**：单轮，30-50 行。**优先级：中**（闭环 R3 的可执行性）。
+**启动 T2 前必须先补齐的预置项（Codex 定位）**：
+1. **命名语义澄清** — 现有"硬边界 0/1/2"是 Phase 之前定义的全局 Coordinator 不变式。T2 是 Phase 2 内的条件性守卫，不是同级语义。叫"硬边界 3"会误导读者，应改称"Phase 2 Guard"或"Phase 2 前置条件"。
+2. **在 `stage-roadmap.md` 正式加 `long_running: bool` 字段定义** — 当前 stage 定义只有 `prerequisites / 检测条件 / skip_if / value_assessment`，无 `long_running`，引用不存在的字段是无中生有。
+3. **在 `state-schema.md` 正式加 `last_execution.estimated_sprints` 字段** — 当前 schema 只有 `date / plan_summary / agents_dispatched / results`，无 `estimated_sprints`，触发条件会永远不命中。
+4. **去重复与 harness-verify 的 expected-outputs 机制** — Phase 3 调度方案已有 `预期产出` 列，harness-verify 已做文件存在性检查。T2 的三个工件应并入这套机制，而不是新开 Phase 2 平行节。
+5. **在 `execution-policy.md` 定义 "ESCALATE → 降级为单 sprint" 的具体路径** — 现有 ESCALATE 定义是"暂停 + 上报 + 等用户决策"，没有"自动转为单 sprint"这条降级路径，R7 凭空声称了这个行为。
+
+**估工**（仅在 5 项预置完成后）：单轮 30-50 行修改 SKILL.md，但 5 项预置本身就是 3 个文件的 schema 扩展 + 1 个 policy 补全，属独立工作。**总估工：2-3 轮。**
+
+**优先级：降级为低** — 原以为是单轮收尾，实际发现是跨 schema 的改造。除非有具体项目出现因三工件缺失导致的 sprint 启动失败事故，否则继续推迟。
 
 ### T3 · 广度扫描 · 剩余 40+ skill 的 Anthropic 对齐
 **现状**：R1 深度审视了 Codex 指定的 6 个 skill。剩余 skill 未经 Anthropic 视角系统性审视。
