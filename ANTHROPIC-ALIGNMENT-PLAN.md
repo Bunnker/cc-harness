@@ -44,28 +44,25 @@
 | P2 12 | Plan mode | 独立子模式 | ✅ | plan-mode |
 | P2 13 | 观测 | transcript 分析 | ⚠️ 部分 | telemetry-pipeline（收集）、runtime-summaries（展示） |
 | Meta 14 | 压测假设 | 定期 prune | ✅ | architecture-invariants §四 ASM |
-| Meta 15 | Transcript 脆弱点 | 读中间过程失败 | ❌ 未完 | — |
+| Meta 15 | Transcript 脆弱点 | 读中间过程失败 | ⚠️ pending merge | eval-driven-design §Step 9（R5 · [PR #3](https://github.com/Bunnker/cc-harness/pull/3) 未合并）|
 | Meta 16 | 失败模式视图 | 按"要防什么"组织 | ✅ | FAILURE-MODES.md |
 | Meta 17 | 升级 → 简化 | 不堆砌脚手架 | ✅ | architecture-invariants §四 |
 
-**净状态：15/17 完成 + 1/17 部分 + 1/17 未完。唯一明确 gap 是 Meta #15。**
+**净状态：15/17 完成 + 1/17 部分 + 1/17 pending merge。** Meta #15 的内容交付已在 R5（[PR #3](https://github.com/Bunnker/cc-harness/pull/3)）完成但未合并到 main，因此本 PR（r6）里 `FAILURE-MODES.md` 对 Step 9 的引用会在 PR #3 合并后才解析。P2 #13（观测 · transcript 分析）的仓内部分已交付（采集 via `telemetry-pipeline`、展示 via `runtime-summaries`、shape 分析方法 via Step 9），仓外的 online eval 聚合管线属于下游消费层，本 skill pack 不承担。
 
 ## 三、剩余工作清单（按价值降序）
 
-### T1 · 闭合 Meta #15 · Transcript 脆弱点分析方法
-**现状**：`telemetry-pipeline` 讲了"怎么收集 transcript"，`eval-driven-design` 讲了"跑什么 eval"。**缺**：拿到 transcript 后怎么读出中间过程的脆弱点——不只是看最终答案对错，而是看工具调用形状。
+### T1 · 闭合 Meta #15 · Transcript 脆弱点分析方法 · ⚠️ 内容交付，pending merge（R5）
 
-**Anthropic 的关键观察**：
-> Read transcripts for the shape of failure, not just the outcome.
+**落地**：[eval-driven-design §Step 9](skills/eval-driven-design/SKILL.md)（内容在 [PR #3](https://github.com/Bunnker/cc-harness/pull/3) · commit `5fe055d` · +58 行，未合并 main 前当前分支无此锚点）
 
-**应识别的脆弱点类型**：
-- 冗余工具调用（读同一文件 3 次）
-- 工具调用震荡（A→B→A→B，没收敛）
-- 过早自我总结（任务未完成就开始 "I've successfully..."）
-- 沉默能力下降（以前能做的现在说 "I'm unable to..."）
+**交付内容**：
+- Anthropic 原话命名的 4 种 shape 脆弱模式：冗余工具调用 / 工具调用震荡 / 过早自我总结 / 沉默能力下降——每项配计数方法和根因指向
+- 与新合入 artifact（`commands.log` / `audit-findings.md` / scorecard `code_quality` 维度）的交叉引用表
+- "fragile pass" 概念：端态通过 + 轨迹脆弱 → 计入 `pass@k` 但不计入 `pass^k`——在模型升级时能看到"表面分数没降但脆弱性上升"的先行信号
+- Step 6（端态）+ Step 9（shape）组合决策规则
 
-**建议落位**：扩 `eval-driven-design`（离 pass@k 和 online/offline 最近），新增 Step 9 "Transcript Shape Analysis"。
-**估工**：单轮，80-120 行。**优先级：高**（闭合原报告最后一项）。
+**实际用时**：58 行（原估 80-120 行）。能更紧凑是因为 [PR #2](https://github.com/Bunnker/cc-harness/pull/2) 合入的 audit 升级 + M1 hooks 产生了结构化 artifact，Step 9 不用再白手起家定义数据格式，只需引用现有文件类型。
 
 ### T2 · 加固 P1 #8 · harness 里的硬约束
 **现状**：R3 的启动仪式引用了 `init.sh` / `claude-progress.txt` / `feature_list.json`，但 `harness/SKILL.md` 的 Phase 1/2 没有"**必须**产出这三个工件"的硬要求。
@@ -98,13 +95,16 @@
 ## 四、推荐顺序
 
 ```
-R4 = T1（闭合 Meta #15 — 唯一未完项，单轮可落）
-R5 = T2（补 harness 硬约束 — 让 R3 的仪式真正可执行）
-R6 = T5（README 集成 — 顺手做）
-—— 分叉决策点 ——
-→ 有真实跨 sprint 任务可跑 → T4（实证验证）
-→ 倾向继续加固 → T3（广度扫描）
-→ 无新触发 → 暂停，等 Anthropic 发新文章或模型大版本升级再审视
+R4 = 本路线图诞生（2026-04-17） ✅
+R5 = T1（Step 9 Transcript Shape Analysis） ⚠️ 内容交付 · PR #3 未合并
+R6 = FAILURE-MODES 反哺（FM-5 加 Step 9 引用 + 新增 FM-15 结构保真） 本 PR
+—— 17 项中 15 完成 / 1 部分 / 1 内容交付未合并 ——
+—— 当前分叉决策点 ——
+→ T2（harness 加长运行工件硬约束） — 低风险单轮，有空就做
+→ T5（README 集成 FAILURE-MODES + PLAN 为导航入口） — 5 分钟清洁
+→ T4（实证验证） — 等 Zero Magic 或其他项目跑几个跨 sprint 任务后做
+→ T3（Codex 广度扫描剩余 40+ skill） — 3-5 轮开销，仅当怀疑有非显而易见 gap 时启动
+→ 无新触发 → 暂停，等 Anthropic 发新文章或 Claude 大版本升级再审视
 ```
 
 ## 五、完成定义
@@ -127,4 +127,7 @@ R6 = T5（README 集成 — 顺手做）
 | 2026-04-17 | R1 内容对齐 · 6 skill 插入 | `e7823ff` |
 | 2026-04-17 | R2 失败模式导航层 | `258a512` |
 | 2026-04-17 | R3 跨 sprint 启动仪式 | `b0d1790` |
-| 2026-04-17 | 本计划书诞生 | （本次 commit） |
+| 2026-04-17 | R4 本路线图诞生 | `60edbc0` |
+| 2026-04-17 | 继承另一 session：harness-verify audit 升级 + M1 Python hooks + trace contract | `3ff0781` / `e5d0526` / `59b3122`（[PR #2](https://github.com/Bunnker/cc-harness/pull/2)） |
+| 2026-04-20 | R5 Step 9 Transcript Shape Analysis（闭合 Meta #15） | `5fe055d`（[PR #3](https://github.com/Bunnker/cc-harness/pull/3)） |
+| 2026-04-20 | R6 FAILURE-MODES 反哺 + FM-15 结构保真 + 本 PLAN 状态矩阵更新 | 本次 commit |

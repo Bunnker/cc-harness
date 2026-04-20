@@ -67,8 +67,8 @@
 
 | 角色 | Skill | 解决什么切面 |
 |------|-------|------------|
-| 主 | [eval-driven-design](skills/eval-driven-design/SKILL.md) Step 6-8 | 轨迹 vs 端态 + pass@k vs pass^k + online/offline |
-| 辅 | [harness-verify](skills/harness-verify/SKILL.md) | 同时产出 verification.md（端态）+ commands.log（轨迹） |
+| 主 | [eval-driven-design](skills/eval-driven-design/SKILL.md) Step 6-8（Step 9 *[见 PR #3](https://github.com/Bunnker/cc-harness/pull/3)* 待合并） | 轨迹 vs 端态 + pass@k vs pass^k + online/offline + **transcript shape（冗余/震荡/过早总结/能力下降，Step 9 内容）** |
+| 辅 | [harness-verify](skills/harness-verify/SKILL.md) | 同时产出 verification.md（端态）+ commands.log（轨迹）+ audit-findings.md（shape 证据） |
 | 辅 | [telemetry-pipeline](skills/telemetry-pipeline/SKILL.md) | online eval 的采样源 |
 
 ## 三、工具层失败
@@ -177,7 +177,29 @@
 | 辅 | [agent-memory](skills/agent-memory/SKILL.md) | 跨会话持久化 feedback |
 | 辅 | [magic-docs](skills/magic-docs/SKILL.md) | 文档根据对话演进 |
 
-## 六、不映射到失败模式的 skill
+## 六、产出质量失败
+
+### FM-15: 结构保真失败
+
+**症状**：Worker 产出的代码**语法对 / 类型对 / 构建通过**，但破坏了模块边界、擅自改了公共接口、或违反了框架不变式。scorecard 的 `build_lint_typecheck` 过关，真实可维护性却崩盘——这是"虚高分数"最常见的来源，也是 Codex 审阅 HARNESS_EVOLUTION_PLAN.md 时点名的现有 FM 集合盲区。
+
+**识别指标**：
+- Worker 在输出开头没写 `INTERFACE_CHANGE:` 声明，但 diff 里公共 export 签名变了
+- 修改路径超出 `target_paths`（越界实现）
+- 新增行为分支没有对应测试
+- 职责分层与相邻文件不一致（A 文件里做了 B 文件该做的事）
+
+| 角色 | Skill | 解决什么切面 |
+|------|-------|------------|
+| 主 | [harness-verify](skills/harness-verify/SKILL.md) §6（代码审计） + scorecard 6 维 | `code_quality` 维度捕获结构保真问题，补齐单看 `build_lint_typecheck` 的盲区 |
+| 主 | [harness](skills/harness/SKILL.md) Worker prompt 固定前缀 | `target_paths` 路径约束 + `INTERFACE_CHANGE:` 声明要求 + `ESCALATE:` 跨文件逃生舱 |
+| 辅 | [multi-agent-design](skills/multi-agent-design/SKILL.md) | Sprint Contract 的 `scope_in` / `scope_out` 显式划定 Worker 的职责边界 |
+| 辅 | [eval-driven-design](skills/eval-driven-design/SKILL.md) Step 9 *(见 PR #3)* | transcript shape 分析里的"过早自我总结"常对应此类失败——Worker 声称完成但没自审边界 |
+| 辅 | [architecture-invariants](skills/architecture-invariants/SKILL.md) §四 | Assumption Registry 追踪哪些框架不变式是"升级后过期 vs 仍需守护" |
+
+**为什么独立为一条 FM**：它不是工具问题（FM-6）、不是权限问题（FM-8）、也不是评估噪声（FM-5）——而是一个独立的**输出质量维度**。Codex 在审阅 HARNESS_EVOLUTION_PLAN.md 时显式指出这是现有 FM 集合的盲区，新合入的 `code_quality` 维度是第一个能观测它的工具。
+
+## 七、不映射到失败模式的 skill
 
 这些 skill 是**基础设施 / 能力扩展 / 教学**，不是为了治疗某个失败模式而存在。独立查阅即可：
 
