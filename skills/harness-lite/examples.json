@@ -1,0 +1,30 @@
+[
+  {
+    "id": "ttl_bugfix_with_test",
+    "task": "/harness-lite \"D:\\repo\\app\" :: 修复 src/cache.ts 中 TTL 计算错误，并补一个单测",
+    "candidate_files": ["src/cache.ts", "tests/cache.test.ts"],
+    "change_tags": ["leaf_patch", "test"],
+    "expected_decision": "allow"
+  },
+  {
+    "id": "readme_install_sync",
+    "task": "/harness-lite \"D:\\repo\\app\" :: 调整 README 里的安装命令，和 install.ps1 保持一致",
+    "candidate_files": ["README.md", "install.ps1"],
+    "change_tags": ["docs", "installer_copy"],
+    "expected_decision": "allow"
+  },
+  {
+    "id": "remote_config_multi_entry",
+    "task": "/harness-lite \"D:\\repo\\app\" :: 新增一个远程配置系统，并接到 CLI / SDK / Web 三个入口",
+    "candidate_files": ["src/cli/config.ts", "src/sdk/config.ts", "src/web/config.ts"],
+    "change_tags": ["new_module", "public_api_change", "entrypoint_change", "cross_module"],
+    "expected_decision": "reject"
+  },
+  {
+    "id": "permission_session_recovery",
+    "task": "/harness-lite \"D:\\repo\\app\" :: 调整权限模型并接入 session recovery 回退逻辑",
+    "candidate_files": ["src/policy.ts", "src/session/recovery.ts"],
+    "change_tags": ["permissions", "session_recovery"],
+    "expected_decision": "reject"
+  }
+]
