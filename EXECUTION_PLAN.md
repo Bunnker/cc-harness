@@ -368,6 +368,8 @@
 3. 再候选评估
 4. 最后才是自动搜索优化
 
+**启动 M2 候选评估前先读**：`UNIFIED-ROADMAP.md` §M2 实证启发式 —— 来自 Zero Magic 的 4 个完整候选实验（`slim-report-v1` PROMOTED / `independent-audit-v1` PROPOSED / `prompt-self-save-v1` REJECTED / `lean-prefix-v1` WITHDRAWN）归纳出的"高 ROI / 低 ROI 候选特征"表。这批 empirical priors 避免 M2 启动就把第一批预算花在 Worker 服从性约束或 prefix 微优化这类已知低 ROI 方向上。
+
 ### 9.3 交付物
 
 1. 3 个 reference repo
