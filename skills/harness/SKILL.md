@@ -780,3 +780,14 @@ observable fallback 决策树：
 - 条件并行组 → 设计可并行，编码/审计补齐通常串行
 - 有输出→输入依赖 → 串行
 - 存疑 → 保守串行
+
+### 何时值得做 M2 候选实验
+
+提新 M2 候选（对 harness 编排策略做 A/B）前必读：**[`UNIFIED-ROADMAP.md` §M2 实证启发式](../../UNIFIED-ROADMAP.md)**。该表基于 Zero Magic `feature/fengshui-mvp` 分支的 4 个完整候选实验归纳出来：
+
+- `slim-report-v1`（leaderboard verdict: `promoted`）— 精简 REPORT 模板 → state 更新遵从率从 ~60% 提升到 100%，**高 ROI 样例**
+- `independent-audit-v1`（manifest status: `proposed`）— 独立审计 Worker → 打破自评循环，**高 ROI 样例**
+- `prompt-self-save-v1`（leaderboard verdict: `rejected_search`）— Worker 自保存 prompt → `prompt_md_rate: 0.0`，**低 ROI 反例**（依赖 Worker 服从性）
+- `lean-prefix-v1`（manifest verdict: `withdrawn`）— prefix 行数精简 → `token < 1%`，ROI 评估后撤回，**低 ROI 反例**（微优化）
+
+这 4 个样例 + 4 道自检问题在 UNIFIED-ROADMAP 里完整列出。不先读就提新候选，大概率重复已被否决的两类方向：Worker 服从性约束 / prefix 微优化。

@@ -393,6 +393,39 @@
 - `leaderboard.json` 记录 baseline 的 `composite_score`、`cost_tokens`、候选逐项目分数、`delta_vs_baseline` 与 `status`。
 - 成功标准：至少 1 个候选完成 A/B 评估，leaderboard 有 baseline 与候选对比数据，worktree 自动清理，`eval-results` 包含完整 scorecard。
 
+#### M2 实证启发式（empirical priors，来自下游）
+
+> 来源：一个下游项目（Zero Magic `feature/fengshui-mvp`）的 4 个完整 M2 候选实验。证据详见 `EVOLUTION-FROM-ZEROMAGIC.md` §建议 4 + §2.1 / §2.2 / §2.3 / §1.8。**n = 1 项目 × 4 候选**，作为第一批 empirical priors 指导候选选择，不替代未来多项目 held-out 的正式晋升判定（M3 职责）。
+
+**高 ROI 候选特征**（基于 `slim-report-v1`（leaderboard verdict: `promoted`）+ `independent-audit-v1`（manifest status: `proposed`））：
+
+| 特征 | 为什么高 ROI |
+|------|------------|
+| 改动**协议/流程**（REPORT 模板、verify 步骤、hook schema）| 一次改动影响所有后续轮次；不依赖单个 Worker 的执行质量 |
+| 改动**评估维度本身**（scorecard 组成、composite_score 口径）| 直接触及 self-eval bias（参见 FM-5）；换掉坏的量尺比让量尺读数变好容易 |
+| 改动**独立性边界**（独立审查者、角色拆分）| 打破 agent 自评的循环；独立审计的价值由 `2026-04-14-full-audit` trace 单独证实——`full-audit/scorecard.json` composite 为 0.72，远低于常规编码轮自评的 ~0.99（这是 full-audit 一次性证据，不是 `independent-audit-v1` 的 A/B 对比结果） |
+
+**低 ROI 候选特征**（基于 `prompt-self-save-v1`（leaderboard verdict: `rejected_search`）+ `lean-prefix-v1`（manifest verdict: `withdrawn`））：
+
+| 特征 | 为什么低 ROI |
+|------|------------|
+| 依赖 **Worker 服从性**的新约束（"让 Worker 做 X"）| Worker 在 context 压力下会忽略非核心指令；`prompt-self-save-v1` manifest 中 `prompt_md_rate: 0.0`，Worker 完全不执行自保存 |
+| **token prefix / 缓存结构** 的微优化 | 在 Opus 4.6 / 4.7 的 1M context 下，prefix 不是瓶颈；`lean-prefix-v1` manifest 估算 "token < 1%"，ROI 评估后**自行 withdrawn** |
+| **治表不治里**——改一个症状但不触碰自评盲点 / 信号噪音的根因 | 改完 scorecard 数字好看一点，但相同的盲区会在下一轮换另一种方式出现 |
+
+**反模式（明确不做）**：
+
+- ❌ 把 Worker 服从性问题当执行面问题：如果 Worker 不做某件事，大概率不是 prompt 措辞问题，而是"这件事不该让 Worker 做"（应该改走 hook 或 harness-verify 补齐）
+- ❌ 把 prefix 大小当主瓶颈：当 context 窗口足够大时，优化它属于**成本微优化而非质量提升**；除非有真实测量的 cache-creation token 占成本比例 / 具体成本对比数据支持，否则不做
+- ❌ 优化前没先问"这是自评盲点引起的吗"：如果根因是盲点，先做独立性改动（如 E5），再谈候选 A/B
+
+**下次提新候选前先问 4 个问题**：
+
+1. 改动落点是**协议 / 流程 / 评估维度**，还是 **Worker 内部约束**？（前者高 ROI）
+2. 是否触及 **scorecard 维度或独立性**？（若是加分）
+3. 是否**依赖 Worker 服从性**？（若是降级到 low-ROI 类）
+4. 当前真正的瓶颈是 **token 成本**还是**信号质量**？（前者多半低 ROI，除非有具体的成本测量数据支持）
+
 ### `M3` — `❌ not started` — Harness Search（自动搜索优化）
 
 - 目标：用受控 proposer 自动生成候选，在 search / held-out 双集上评估，通过后再晋升。
