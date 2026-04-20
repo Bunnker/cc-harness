@@ -46,7 +46,18 @@
       "enabled": true,
       "type": "inline",
       "prompt_suffix": "确保所有输出文件使用 UTF-8 编码",
-      "description": "给每个 Worker prompt 追加约束"
+      "cross_layer_contract": {
+        "enforce_worker_output": true,
+        "template": "worker_result_section",
+        "pairs": [
+          {
+            "field": "soul",
+            "producer": "backend/gateway/src/run/manager.ts:428",
+            "consumer": "backend/runtime/src/context_assembly.py:_build_identity_block"
+          }
+        ]
+      },
+      "description": "给每个 Worker prompt 追加约束 + 可选注入跨层契约表（Contract-First 模式，cross_layer_contract 字段整体可选）"
     },
     "PostWorkerComplete": {
       "enabled": false,
@@ -98,7 +109,7 @@
 
 | Hook | 允许的输入 | 允许的输出 | 副作用策略 | 可否改 state |
 |------|-----------|-----------|-----------|-------------|
-| `PreWorkerDispatch` | Worker prompt + target_paths + skill 名称 | 修改后的 prompt（仅追加，不能删除安全约束）、修改后的 paths（仅缩小，不能扩大到受保护路径） | **有限副作用** — command 类型可执行只读命令（如 lint 检查），但不能修改项目文件 | 否 |
+| `PreWorkerDispatch` | Worker prompt + target_paths + skill 名称 + 可选 `cross_layer_contract.pairs`（字段两端位置对照表）| 修改后的 prompt（仅追加，不能删除安全约束；Contract-First 模式下追加一段强制输出"跨层一致性"表的指令）、修改后的 paths（仅缩小，不能扩大到受保护路径） | **有限副作用** — command 类型可执行只读命令（如 lint 检查），但不能修改项目文件 | 否 |
 | `PostWorkerComplete` | Worker 结果 + 状态（completed/partial/failed） | 额外验证结果（pass/fail + 原因）、通知指令 | **允许副作用** — command 类型可执行通知命令（如发送消息）。但不能修改 Worker 产出文件。 | 否 |
 | `WorkerFailed` | 失败原因 + Worker prompt + 已尝试的恢复路径列表 | `{ retry_prompt: "..." }` 提供修正 prompt 用于重试 / `{ abort_group: true }` 取消同组其他 Worker / `{ escalate: true }` 直接上报用户 / `null` 走默认恢复路径 | **无副作用** — 只返回决策，由 Coordinator 执行 | 否 |
 
