@@ -233,6 +233,50 @@ code_quality 评分规则：
    - 如果有 Critical/High 审计发现：逐条列出（文件:行号 + 问题描述）
    - 如果有 INTERFACE_CHANGE 或路径越界：明确列出
 
+## Trace 写入失败的 fallback（基础设施故障 ≠ 代码质量问题）
+
+如果上述 5 个 trace 文件中任一**写入失败**（`trace_dir` 不存在 / 权限拒绝 / 磁盘满 / 路径字符串错位），**不要**悄悄跳过继续产出"成功"摘要。必须走 documented fallback：
+
+**你的文本输出改为如下结构化块**：
+```
+status: trace_write_failed
+failed_writes:
+  - path: "{full_path}"
+    error: "{errno 或 exception string}"
+written_successfully:
+  - "{path1}"
+  - "{path2}"
+partial_scorecard:
+  build_lint_typecheck: 1.0
+  smoke_tests: 0.9
+  runtime_invariants: 1.0
+  structural_fidelity: 0.95
+  verification_coverage: null   # 因 trace 写失败无法评估
+  code_quality: 0.85
+  composite_score: null          # 不计算（会混淆 M2 对比）
+audit_findings_inline:
+  critical: 0
+  high: 0
+  medium: 0
+  low: 0
+  # 如 audit-findings.md 写入失败，把具体问题列表内联到这里
+next_steps_for_coordinator:
+  - "Coordinator 在 REPORT §1 用 ⚠️ fallback 标注 verify 行"
+  - "Coordinator 把本结构化块原样贴到 REPORT 正文，不另写 verification.md / scorecard.json 文件"
+  - "Coordinator 追加 learnings: { type: failure, insight: \"harness-verify trace write failed: ...\", trace_ref: null }"
+  - "Coordinator 可提 commit（基础设施故障不阻塞业务）"
+  - "本轮 composite_score 为 null，不计入 M2 leaderboard 对比（彻底剔除，不做降权/抬底——避免基础设施故障污染候选评估）"
+```
+
+**为什么要这样做**（3 条）：
+1. **区分基础设施 vs 代码问题**：trace 写失败是磁盘/路径问题，不是代码质量问题。把它混进 `code_quality` 维度会让 scorecard 噪音化
+2. **让 Coordinator 知情**：Coordinator 读文本输出决策；结构化块让 Coordinator 不漏掉 fallback 标注
+3. **对 M2 友好**：`composite_score: null` 明确表示"本轮不可用于候选对比"，避免基础设施故障污染 leaderboard
+
+**何时**不**走 fallback**：
+- `trace_dir` 不存在但你**能自己创建**（`Bash mkdir -p`）→ 创建后继续正常写入
+- 部分文件写入失败但 `scorecard.json` / `verification.md` 两个核心产物成功 → 仍算成功，但在 verification.md 里记一条 "WARN: `{missing_file}` 未产出"
+
 ## 禁止操作
 
 - 不修改任何项目代码文件

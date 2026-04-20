@@ -701,6 +701,54 @@ trace 文件不存在时写 `"trace_ref": null` 并在 insight 末尾追加 `[tr
 
 **验证/scorecard/commands.log/diff.patch 不需要 Coordinator 手写** — 编码/审计轮由 harness-verify Worker 产出；pre-commit hook 自动补齐缺失的 commands.log 和 diff.patch。设计轮由 Coordinator 写 verification.md 和 scorecard.json（内容简单，不需要跑命令）。
 
+### 6. 卫生门（state/trace 完整性检查）— 提 commit 前硬约束
+
+下游实战反馈（见 `EVOLUTION-FROM-ZEROMAGIC.md` §1.3 + §建议 3）多次出现 3 类卫生问题：历史 `harness-state.json` 在 Edit 过程中被写成非法 JSON 没人发现、`trace-index.json` 落后于最新 trace 目录、`harness-verify` 因 `trace_dir` 路径错位（如日期字符串错或目录未先创建）静默失败。每条都发生在"trace 都写了、验证都过了"的假象之下。
+
+**REPORT 阶段结束后、提 commit 前必须过 3 道卫生门，任一不过则拦住 commit**：
+
+#### 门 1 · JSON 文件语法校验
+
+对以下 JSON 文件逐个执行 `python -m json.tool <path> > /dev/null`，退出码非零 = 拦截：
+- `$ARGUMENTS/.claude/harness-state.json`
+- `$ARGUMENTS/.claude/harness-hooks.json`（若存在）
+- `$ARGUMENTS/.claude/harness-lab/trace-index.json`
+- `$ARGUMENTS/.claude/harness-lab/leaderboard.json`（若存在）
+- 本轮 trace 目录下每个 `*.json`
+
+不是人眼审阅——是语法机器校验。历史 state 损坏通常是 Edit 工具把 `}` 误删或 `,` 漏了，JSON parser 一次就能抓。
+
+#### 门 2 · trace-index.json 刷新强制
+
+**不是"按需维护"，是每轮必做**：REPORT 结尾追加本轮条目到 `$ARGUMENTS/.claude/harness-lab/trace-index.json`，字段对齐 Phase 1 SCAN §1a+ 中的 schema（`dir / stage / type / composite_score / workers`）。
+
+若本轮 `composite_score` 未写入 `trace-index.json`：Coordinator 必须在 REPORT 输出里明确标注 "trace-index 未更新（原因：...）"——不允许默认跳过。
+
+#### 门 3 · harness-verify fallback 可见化
+
+`harness-verify` 写 trace 失败（如 `trace_dir` 不存在 / 权限拒绝 / 磁盘满）时，Coordinator **不允许当成"verify 已通过"**。进入 documented fallback：
+
+```
+observable fallback 决策树：
+  harness-verify 返回以 "status: trace_write_failed" 开头的结构化块，字段包括：
+    failed_writes[]          ← 写入失败的路径 + 错误
+    written_successfully[]   ← 成功写入的路径（可能为空）
+    partial_scorecard        ← 各维度数值（verification_coverage 可能为 null）
+    partial_scorecard.composite_score = null  ← 本轮不产出 composite
+    audit_findings_inline    ← audit-findings.md 写失败时内联的问题列表
+    next_steps_for_coordinator[]  ← harness-verify 明确指示 Coordinator 该做什么
+
+    → Coordinator 在 REPORT §1 "完成的任务" 表的 verify 行标注 "⚠️ fallback (trace_write_failed)"
+    → Coordinator 把结构化块原样贴到 REPORT 正文（不另写 verification.md/scorecard.json）
+    → Coordinator 在 learnings 追加 { type: "failure", insight: "harness-verify trace write failed: ...", trace_ref: null }
+    → 仍然允许 commit（不因基础设施故障阻塞业务）
+    → **本轮不计入 M2 leaderboard 对比**（composite_score 为 null，不是降权，是彻底剔除——避免基础设施故障污染候选评估）
+```
+
+门 3 的意义：把"verify 的产出失败"和"verify 发现代码问题"区分开——前者是基础设施故障（trace 写不出来 ≠ 代码差），后者是代码质量问题（audit 发现 bug）。混淆两者会让 scorecard 失真（参见 [FAILURE-MODES.md](../../FAILURE-MODES.md) FM-5 评估信号噪音）。
+
+> **字段对齐**：结构化块的字段名与 `harness-verify` SKILL.md "Trace 写入失败的 fallback" 节定义必须一致。Coordinator 不应在此处重新组合字段或改写语义。
+
 ### 下一步
 继续 `/harness $ARGUMENTS` 推进到下一批任务。
 ```
