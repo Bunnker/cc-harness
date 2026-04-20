@@ -193,6 +193,64 @@ pass^k  = k 次全部成功         (P(每次成功))
 
 **反模式**：只有 offline 会让你在生产上瞎；只有 online 会让你无法横向比较模型版本。CC 的做法是 offline 做模型发布门（`@[MODEL LAUNCH]`），online 做持续监控。
 
+### Step 9：Transcript Shape Analysis（中间过程的脆弱点）
+
+> Anthropic 原话：
+> 
+> *Read transcripts for the shape of failure, not just the outcome. Watch for: redundant tool calls, tool-call oscillation, eager self-summary before task completion, silent capability drop.*
+
+scorecard 只告诉你"最终结果对不对"，transcript 才告诉你"它是怎么到那里的"。同样的 0.99 composite 可以来自两种完全不同的轨迹：一次性走对，或者绕了 5 个来回试错然后刚好蒙对。**后者就是脆弱点**——环境稍微扰动就会翻车。只看 scorecard 会奖励这种脆弱的成功。
+
+#### 4 种 Anthropic 命名的 shape 脆弱模式
+
+| 模式 | 看什么信号 | 怎么数 | 根因指向 |
+|------|----------|--------|---------|
+| **冗余工具调用** | 同一个 Read/Grep 重复调用同一文件/模式 ≥ 3 次 | transcript 里 `tool_use.input.file_path` 按值分组计数 | 模型忘了上次读过，或在 context 压力下重新拉回记忆。常伴随接近 context 上限 |
+| **工具调用震荡** | 短窗口内工具序列出现 A→B→A→B、Edit→Bash→Edit→Bash 这种循环且状态没推进 | 滑动窗口 n=4，看 `tool_name` 序列是否周期 2 且结果 hash 不变 | 模型在两种假设间摇摆，没拿到决定性信号就在"猜"。continue 下去分数会骤降 |
+| **过早自我总结** | 任务未完成就出现 "I've successfully..."、"完成了 X"、"全部通过" 的 assistant text | regex 扫 `successfully\|complete\|全部\|已完成` + 对比 feature_list.json 是否真 done | Context anxiety（见 `agent-resilience` §7）。**最隐蔽**——模型声音自信但工作未完 |
+| **沉默能力下降** | 以前能做的操作现在说 "I'm unable to..."、"cannot directly..." | 把"能力声明"token 作为**回归指标**跨轮跟踪（新模型比旧模型这个指标应该更低，反转说明回归） | 模型换代后行为漂移（见本 skill §三 MODEL LAUNCH Gate） |
+
+#### 用新合入的 artifact 做 shape 分析
+
+M1 Python hooks 和 audit 升级后，**transcript shape 不再要靠 raw JSONL 手读**，已经有结构化的 artifact 可以直接喂：
+
+| Artifact | 能揭示哪种 shape | 怎么用 |
+|----------|----------------|--------|
+| `commands.log`（M1 command-facade 产出） | 冗余调用、震荡 | `grep -c` 数同命令出现次数；观察命令交错模式 |
+| `worker-N-result.md` | 过早自我总结 | 搜索结尾的胜利宣言 token，对照 `feature_list.json` 真实状态 |
+| `audit-findings.md`（harness-verify §6.5 产出） | 过早自我总结的**证实信号** | 如果 Worker 声称 done 但 audit 找出 critical issue → 命中 "premature self-summary" |
+| `scorecard.json` 的 `code_quality` 维度（新 6 维）| 沉默能力下降的横截面 | 同一 Worker 多轮的 code_quality 趋势；下降而其他维度不变 → 模型/prompt 有回归 |
+
+#### 决策规则
+
+```
+轨迹评估（Step 6）+ shape 分析（本步）的组合规则：
+
+端态通过（Step 6 end-state ✓）
+  + 轨迹无脆弱 shape  → 真实通过，记入 pass^k 分子
+  + 轨迹有脆弱 shape → 标注"fragile pass"，pass@k 算通过但 pass^k 不算
+端态失败（Step 6 end-state ✗）
+  → 失败。但看 shape 决定根因：
+     redundant/oscillation → prompt/工具设计问题
+     premature summary → context 管理问题
+     capability drop → 模型换代问题
+```
+
+**fragile pass 这个概念比简单的 pass/fail 多带一维信息**——它让你在模型升级时能看到"表面分数没降，但脆弱性上升"的趋势，不然就只能等事故发生才知道退化了。
+
+#### 反模式
+
+- 不要只在失败时读 transcript——成功轨迹里的 shape 脆弱同样重要，是下次失败的先行指标
+- 不要把 4 种 shape 各自做阈值硬编码触发（如 "冗余 ≥ 3 就告警"）——应该**累加权重**，单维度小幅度不报，多维同时出现才升级
+- 不要在 transcript 上跑自动"修复"（让 LLM 看 transcript 建议改 prompt）——先人工建立至少 20 个标注样本，否则 shape 分析本身会被 LLM 的自评盲点污染（见 `agent-reflection` §7）
+
+#### 关联 skill
+
+- [agent-resilience](../agent-resilience/SKILL.md) §7 Context Anxiety — 过早自我总结的机制解释
+- [agent-reflection](../agent-reflection/SKILL.md) §7 Self-Eval Blind Spot — 为什么不能让同一个 agent 分析自己的 shape
+- [harness-verify](../harness-verify/SKILL.md) §6.5 代码审计 — 把 shape 信号结构化为 audit-findings.md
+- [telemetry-pipeline](../telemetry-pipeline/SKILL.md) — transcript 采集与隐私保护的源头
+
 ---
 
 ## 三、模型发布验证门（MODEL LAUNCH Gate）
