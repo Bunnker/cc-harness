@@ -44,17 +44,17 @@
 | P2 12 | Plan mode | 独立子模式 | ✅ | plan-mode |
 | P2 13 | 观测 | transcript 分析 | ⚠️ 部分 | telemetry-pipeline（收集）、runtime-summaries（展示） |
 | Meta 14 | 压测假设 | 定期 prune | ✅ | architecture-invariants §四 ASM |
-| Meta 15 | Transcript 脆弱点 | 读中间过程失败 | ⚠️ pending merge | eval-driven-design §Step 9（R5 · [PR #3](https://github.com/Bunnker/cc-harness/pull/3) 未合并）|
+| Meta 15 | Transcript 脆弱点 | 读中间过程失败 | ✅ | eval-driven-design §Step 9（R5 · [PR #3](https://github.com/Bunnker/cc-harness/pull/3)）|
 | Meta 16 | 失败模式视图 | 按"要防什么"组织 | ✅ | FAILURE-MODES.md |
 | Meta 17 | 升级 → 简化 | 不堆砌脚手架 | ✅ | architecture-invariants §四 |
 
-**净状态：15/17 完成 + 1/17 部分 + 1/17 pending merge。** Meta #15 的内容交付已在 R5（[PR #3](https://github.com/Bunnker/cc-harness/pull/3)）完成但未合并到 main，因此本 PR（r6）里 `FAILURE-MODES.md` 对 Step 9 的引用会在 PR #3 合并后才解析。P2 #13（观测 · transcript 分析）的仓内部分已交付（采集 via `telemetry-pipeline`、展示 via `runtime-summaries`、shape 分析方法 via Step 9），仓外的 online eval 聚合管线属于下游消费层，本 skill pack 不承担。
+**净状态：16/17 完成 + 1/17 部分。** P2 #13（观测 · transcript 分析）的仓内部分已交付（采集 via `telemetry-pipeline`、展示 via `runtime-summaries`、shape 分析方法 via Step 9），仓外的 online eval 聚合管线属于下游消费层，本 skill pack 不承担。
 
 ## 三、剩余工作清单（按价值降序）
 
-### T1 · 闭合 Meta #15 · Transcript 脆弱点分析方法 · ⚠️ 内容交付，pending merge（R5）
+### T1 · 闭合 Meta #15 · Transcript 脆弱点分析方法 · ✅ 已完成（R5）
 
-**落地**：[eval-driven-design §Step 9](skills/eval-driven-design/SKILL.md)（内容在 [PR #3](https://github.com/Bunnker/cc-harness/pull/3) · commit `5fe055d` · +58 行，未合并 main 前当前分支无此锚点）
+**落地**：[eval-driven-design §Step 9](skills/eval-driven-design/SKILL.md) · commit `5fe055d` · [PR #3](https://github.com/Bunnker/cc-harness/pull/3) · +58 行
 
 **交付内容**：
 - Anthropic 原话命名的 4 种 shape 脆弱模式：冗余工具调用 / 工具调用震荡 / 过早自我总结 / 沉默能力下降——每项配计数方法和根因指向
@@ -96,9 +96,9 @@
 
 ```
 R4 = 本路线图诞生（2026-04-17） ✅
-R5 = T1（Step 9 Transcript Shape Analysis） ⚠️ 内容交付 · PR #3 未合并
-R6 = FAILURE-MODES 反哺（FM-5 加 Step 9 引用 + 新增 FM-15 结构保真） 本 PR
-—— 17 项中 15 完成 / 1 部分 / 1 内容交付未合并 ——
+R5 = T1（Step 9 Transcript Shape Analysis） ✅ PR #3
+R6 = FAILURE-MODES 反哺（FM-5 加 Step 9 引用 + 新增 FM-15 结构保真） ✅ PR #4
+—— 17 项中 16 完成 / 1 部分（P2 #13 仓内部分）——
 —— 当前分叉决策点 ——
 → T2（harness 加长运行工件硬约束） — 低风险单轮，有空就做
 → T5（README 集成 FAILURE-MODES + PLAN 为导航入口） — 5 分钟清洁
