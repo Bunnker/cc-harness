@@ -1,354 +1,234 @@
 ---
 name: instruction-file-system
-description: "指导如何设计 Harness 指令文件系统：4 层优先级 + 向上遍历 + 条件规则 + @include + worktree 去重"
+description: "指导如何设计层级化指令文件系统：多层来源、向上遍历、条件规则、include 解析、缓存与信任边界"
 user-invocable: true
 argument-hint: "<目标项目路径或模块名>"
 ---
 
-# Harness 指令文件系统 (Instruction File System)
+# 指令文件系统 (Instruction File System)
 
-> 参考实现：Claude Code `src/utils/claudemd.ts`（1460+ 行）
-> — 4 层指令优先级 + 向上目录遍历 + .claude/rules/ 条件规则 + @include 递归 + worktree 去重
+## 1. Problem — 指令不该硬编码在 prompt 常量里
 
-## 核心思想
+成熟的 Agent Runtime 通常会同时拥有：
 
-**Agent 的行为指令不该硬编码——应该从文件系统层级化加载。** CC 用 4 层优先级（Managed > User > Project > Local）、向上目录遍历、条件 glob 匹配，让指令可以按组织/用户/项目/个人粒度配置，同时防止恶意仓库通过指令文件注入危险行为。
+- 组织或平台级强制规则
+- 用户级长期偏好
+- 项目级共享规范
+- 本地私有补充说明
+- 按路径或模块条件激活的局部规则
 
----
+如果这些内容全部写进一个大 system prompt，会立刻遇到问题：
 
-## 一、4 层指令优先级（后加载 = 更高优先级）
+- 无法按目录或文件类型做局部约束
+- 团队共享规则和个人规则混在一起
+- include / 复用机制缺失，规则只能复制粘贴
+- 恶意仓库可能借规则文件注入越权行为
 
-```
-加载顺序（低 → 高）：
-  1. Managed  /etc/claude-code/CLAUDE.md + .claude/rules/*.md
-             （组织策略，最高权威，不可覆盖）
-
-  2. User     ~/.claude/CLAUDE.md + rules/*.md
-             （用户全局规则，跨项目生效）
-
-  3. Project  CLAUDE.md + .claude/CLAUDE.md + .claude/rules/*.md
-             （项目共享规则，在 git 中）
-             — 从 cwd 向上遍历到根目录，每层都扫描
-             — 越靠近 cwd 的越后加载（优先级越高）
-
-  4. Local    CLAUDE.local.md
-             （个人私有规则，gitignored）
-```
-
-### 平台特定的 Managed 路径
-
-```typescript
-// src/utils/settings/managedPath.ts
-macOS:   '/Library/Application Support/ClaudeCode'
-Windows: 'C:\\Program Files\\ClaudeCode'
-Linux:   '/etc/claude-code'
-```
-
-**关键安全设计**：Managed 层始终加载，不受 `--setting-sources` 限制。组织管理员可以在这里放强制性规则（如"不得修改 prod 数据库"），用户无法绕过。
+通用问题是：**如何把“运行时指令”做成一个可分层、可遍历、可条件激活、可缓存、可审计的文件系统。**
 
 ---
 
-## 二、向上目录遍历算法
+## 2. In Claude Code — 源码事实（精简版）
 
+> `源码事实` — CC 的 `claudemd.ts` 很重，这里只保留可迁移的骨架。
+
+### CC 有多层指令来源
+
+按治理强度和覆盖范围，大致包括：
+
+- managed / org 级规则
+- user 全局规则
+- project 共享规则
+- local 私有规则
+
+项目级规则还会沿当前工作目录向上遍历加载，越靠近当前 cwd 的规则优先级越高。
+
+### 规则不只有“无条件文本”
+
+CC 支持 `.claude/rules/*.md` 这类条件规则文件，规则可以带 frontmatter，例如按 `paths` / glob 激活。
+
+因此系统需要区分：
+
+- 启动时立即生效的无条件规则
+- 运行时按目标文件路径激活的条件规则
+
+### include 是一等机制
+
+规则文件可以引用其他规则文件，但要处理：
+
+- 相对路径 / 绝对路径 / home 路径
+- 深度限制
+- 循环 include
+- 外部路径信任边界
+
+### worktree / 嵌套项目需要去重
+
+向上遍历时如果项目有 worktree、子仓库或嵌套 `.claude` 目录，可能会重复加载同一批规则。CC 里专门有 canonical root 与 git root 的去重逻辑。
+
+### 缓存和 hook 是可观测性的一部分
+
+CC 不只是“读完文件完事”，还区分：
+
+- 正确性刷新
+- compaction / session 恢复后的强制重载
+- InstructionsLoaded 等加载事件
+
+重点是：指令系统要能说明“为什么这批规则会在这一轮生效”。
+
+---
+
+## 3. Transferable Pattern — Layered Sources + Conditional Rules + Include Resolver
+
+### 核心模式
+
+把指令系统拆成五个部件：
+
+1. `source layers`
+   定义 managed / user / project / local 的顺序和作用域。
+2. `directory traversal`
+   决定项目级规则从哪里开始向上搜集。
+3. `rule loader`
+   负责把无条件规则和条件规则拆开存储。
+4. `include resolver`
+   负责解析 `@include`，做深度限制、循环检测和信任校验。
+5. `instruction cache`
+   把“当前上下文下实际生效的规则集”缓存起来，并标记失效原因。
+
+### 推荐数据模型
+
+```text
+InstructionFile:
+  path
+  layer
+  body
+  conditions
+  included_from
+
+InstructionSnapshot:
+  always_on
+  conditional_rules
+  activated_rules
+  load_reason
 ```
-当前目录: /home/user/projects/myapp/src/components
-                                          ↓
-遍历路径: /home/user/projects/myapp/src/components
-          /home/user/projects/myapp/src
-          /home/user/projects/myapp       ← 可能是 git root
-          /home/user/projects
-          /home/user
-          /home
-          /                               ← 文件系统根
 
-每层扫描：
-  ├─ CLAUDE.md
-  ├─ .claude/CLAUDE.md
-  ├─ .claude/rules/*.md（递归子目录）
-  └─ CLAUDE.local.md
+### 关键原则
 
-处理顺序：从根向 cwd 方向处理（根先加载，cwd 最后加载）
-→ cwd 附近的文件有最高优先级
-```
+1. 规则来源顺序要显式，不能靠文件名碰巧覆盖。
+2. 项目级规则的遍历方向必须稳定，否则优先级会漂移。
+3. 条件规则和无条件规则要分开存，直到真正命中路径再激活。
+4. include 解析必须受信任边界约束，不能默认跨仓库读任意路径。
+5. 缓存失效要带 reason，方便解释“为什么这轮规则变了”。
+
+---
+
+## 4. Minimal Portable Version — Python 最小实现
 
 ```python
-# 伪代码
-dirs = []
-current = cwd
-while current != root:
-    dirs.append(current)
-    current = parent(current)
-
-for dir in reversed(dirs):  # 从根向 cwd
-    load_project_files(dir)
-    load_local_files(dir)
-```
-
----
-
-## 三、Git Worktree 去重
-
-```
-场景：
-  主仓库: /home/user/repo/
-  Worktree: /home/user/repo/.claude/worktrees/feature-x/
-
-问题：向上遍历会经过主仓库的 .claude/rules/
-      → 同一规则被加载两次（worktree 里一次 + 主仓库一次）
-
-解法：
-  如果 gitRoot ≠ canonicalRoot 且 gitRoot 在 canonicalRoot 内部
-    → 当前在嵌套 worktree 中
-    → 跳过 canonicalRoot 内但 gitRoot 外的 Project 文件
-    → 只加载 worktree 自己的 Project 文件
-    → Local 文件不跳过（不在 git 中，不会重复）
-```
-
----
-
-## 四、.claude/rules/ — 条件规则
-
-rules 目录下的 `.md` 文件可以带 YAML frontmatter 指定生效条件：
-
-```markdown
----
-paths: |
-  src/**/*.py
-  tests/**/*.py
----
-
-所有 Python 文件必须使用 type hints。
-函数返回值必须有类型注解。
-```
-
-### 两阶段加载
-
-```
-会话启动：
-  ├─ 无 frontmatter 的规则 → 立即加载（无条件生效）
-  └─ 有 paths: 的规则 → 暂存为条件规则
-
-运行时触发：
-  Agent 编辑 src/utils/helper.py
-    → 检查条件规则的 glob 匹配
-    → "src/**/*.py" 匹配 → 激活该规则
-    → 注入到下一轮 context
-```
-
-**Glob 匹配基准目录**：
-- Project 规则：相对于包含 `.claude` 目录的那个目录
-- Managed/User 规则：相对于 originalCwd
-
----
-
-## 五、@include 递归指令
-
-```markdown
-# CLAUDE.md
-请遵循以下规范：
-@./coding-standards.md
-@~/.claude/shared-rules.md
-@/absolute/path/security-rules.md
-```
-
-### 解析规则
-
-```
-语法：@path（行首或空格后）
-支持：./relative  ~/home  /absolute  bare-path
-      @./path\ with\ spaces.md（转义空格）
-      @./file.md#section（片段标识符被剥离）
-
-排除：代码块和行内代码中的 @ 不解析
-
-限制：
-  MAX_INCLUDE_DEPTH = 5          ← 防无限递归
-  循环检测 via processedPaths Set
-  二进制文件排除（.png/.pdf/.exe 等 → 跳过）
-  外部文件（cwd 之外）需要信任批准
-```
-
----
-
-## 六、HTML 注释剥离
-
-```markdown
-<!-- 这是给维护者看的注释，Agent 不应该看到 -->
-
-这是给 Agent 看的指令。
-
-<!-- TODO: 下个版本加上安全检查 -->
-```
-
-CC 会剥离块级 HTML 注释但保留内容，让指令文件的维护者可以留注释而不影响 Agent 行为。
-
----
-
-## 七、缓存管理 — 两种失效方式
-
-```
-方式 1: clearMemoryFileCaches()
-  ├─ 触发场景：worktree 进入/退出、设置同步
-  ├─ 行为：清除缓存，不触发 InstructionsLoaded Hook
-  └─ 目的：正确性刷新
-
-方式 2: resetGetMemoryFilesCache(reason)
-  ├─ 触发场景：compaction 后重载、会话恢复
-  ├─ 行为：清除缓存 + 标记"下次加载时触发 Hook"
-  ├─ reason: 'session_start' | 'compact' | 'nested_traversal'
-  └─ 目的：正确性 + 可观测性（Hook 通知）
-```
-
----
-
-## 八、InstructionsLoaded Hook — 指令加载的扩展点
-
-```typescript
-// 每个指令文件加载时触发
-executeInstructionsLoadedHooks(filePath, memoryType, loadReason, {
-  globs?,               // 条件规则的 glob 模式
-  triggerFilePath?,      // 触发懒加载的文件
-  parentFilePath?,       // @include 来源文件
-})
-
-// loadReason 类型：
-'session_start'          // 会话启动时的全量加载
-'compact'                // compaction 后重载
-'nested_traversal'       // Agent 编辑文件触发的目录扫描
-'path_glob_match'        // 条件规则匹配
-'include'                // @include 加载
-```
-
-**用途**：企业可以用 Hook 审计"哪些指令文件被加载了"，或在指令加载时注入额外上下文。
-
----
-
-## 九、实现模板
-
-```python
-from pathlib import Path
 from dataclasses import dataclass
-import re, yaml
+from pathlib import Path
+import fnmatch
+
 
 @dataclass
-class InstructionFile:
-    path: str
-    layer: str           # 'managed' | 'user' | 'project' | 'local'
-    content: str
-    globs: list[str] | None = None  # 条件规则
-    parent: str | None = None       # @include 来源
+class Rule:
+    path: Path
+    layer: str
+    body: str
+    globs: list[str]
 
-class InstructionFileSystem:
-    MANAGED_PATH = Path('/etc/myagent')
-    MAX_INCLUDE_DEPTH = 5
 
-    def __init__(self, cwd: str, home: str):
-        self.cwd = Path(cwd)
-        self.home = Path(home)
-        self._cache: list[InstructionFile] | None = None
-        self._processed: set[str] = set()
+class InstructionLoader:
+    def __init__(self, roots: list[Path]):
+        self.roots = roots
 
-    def load_all(self) -> list[InstructionFile]:
-        """4 层优先级加载"""
-        if self._cache: return self._cache
-        files = []
-
-        # Layer 1: Managed
-        files.extend(self._load_layer(self.MANAGED_PATH, 'managed'))
-
-        # Layer 2: User
-        files.extend(self._load_layer(self.home / '.myagent', 'user'))
-
-        # Layer 3: Project (向上遍历，根先处理)
+    def traverse_project_dirs(self, cwd: Path) -> list[Path]:
         dirs = []
-        current = self.cwd
-        while current != current.parent:
+        current = cwd.resolve()
+        while True:
             dirs.append(current)
+            if current.parent == current:
+                break
             current = current.parent
-        for d in reversed(dirs):  # 根 → cwd
-            files.extend(self._load_layer(d, 'project'))
+        return list(reversed(dirs))
 
-        # Layer 4: Local
-        for d in reversed(dirs):
-            local = d / 'AGENT.local.md'
-            if local.exists():
-                files.append(self._load_file(local, 'local'))
+    def collect_rules(self, cwd: Path) -> list[Rule]:
+        rules: list[Rule] = []
+        for directory in self.traverse_project_dirs(cwd):
+            rules.extend(self._load_from_dir(directory))
+        return rules
 
-        self._cache = files
-        return files
+    def activate(self, rules: list[Rule], target_path: str | None) -> list[Rule]:
+        active = []
+        for rule in rules:
+            if not rule.globs:
+                active.append(rule)
+                continue
+            if target_path and any(fnmatch.fnmatch(target_path, pattern) for pattern in rule.globs):
+                active.append(rule)
+        return active
 
-    def _load_layer(self, base: Path, layer: str) -> list[InstructionFile]:
-        files = []
-        # 主文件
-        for name in ['AGENT.md', '.agent/AGENT.md']:
-            path = base / name
-            if path.exists():
-                files.append(self._load_file(path, layer))
-        # Rules 目录
-        rules_dir = base / '.agent' / 'rules'
-        if rules_dir.is_dir():
-            for md in sorted(rules_dir.rglob('*.md')):
-                files.append(self._load_file(md, layer))
-        return files
-
-    def _load_file(self, path: Path, layer: str, depth=0) -> InstructionFile:
-        if str(path) in self._processed:
-            return InstructionFile(str(path), layer, '[circular reference]')
-        self._processed.add(str(path))
-
-        content = path.read_text(encoding='utf-8')
-        content = self._strip_html_comments(content)
-        globs = self._extract_frontmatter_globs(content)
-        if depth < self.MAX_INCLUDE_DEPTH:
-            content = self._resolve_includes(content, path.parent, layer, depth)
-        return InstructionFile(str(path), layer, content, globs)
-
-    def _resolve_includes(self, content: str, base_dir: Path, layer: str, depth: int) -> str:
-        def replace(match):
-            ref = match.group(1).replace('\\ ', ' ')
-            ref = ref.split('#')[0]  # 剥离片段标识符
-            target = (base_dir / ref).resolve()
-            if target.exists() and target.suffix in ('.md', '.txt'):
-                included = self._load_file(target, layer, depth + 1)
-                return included.content
-            return match.group(0)
-        return re.sub(r'(?:^|\s)@((?:[^\s\\]|\\ )+)', replace, content)
-
-    def _extract_frontmatter_globs(self, content: str) -> list[str] | None:
-        match = re.match(r'^---\s*\n(.*?)---\s*\n', content, re.DOTALL)
-        if not match: return None
-        try:
-            fm = yaml.safe_load(match.group(1))
-            paths = fm.get('paths', '')
-            if not paths: return None
-            return [p.strip() for p in paths.strip().split('\n') if p.strip()]
-        except: return None
-
-    def _strip_html_comments(self, content: str) -> str:
-        return re.sub(r'<!--[\s\S]*?-->', '', content)
-
-    def invalidate(self):
-        self._cache = None
-        self._processed.clear()
+    def _load_from_dir(self, directory: Path) -> list[Rule]:
+        candidates = []
+        for rule_path in sorted((directory / ".agent" / "rules").glob("*.md")):
+            body = rule_path.read_text(encoding="utf-8")
+            candidates.append(Rule(path=rule_path, layer="project", body=body, globs=[]))
+        return candidates
 ```
+
+这个最小版表达的是：
+
+- 项目级向上遍历
+- 规则对象化而不是直接拼字符串
+- 条件规则延迟到 target path 明确时再激活
 
 ---
 
-## 十、实施步骤
+## 5. Do Not Cargo-Cult
 
-请分析用户的 $ARGUMENTS 中指定的项目，然后：
+不要照抄这些 CC 细节：
 
-1. **定义层级**：至少 user + project 两层，有企业需求加 managed
-2. **实现向上遍历**：从 cwd 到根，每层扫描指令文件
-3. **实现 rules 目录**：条件规则用 frontmatter globs，两阶段加载
-4. **实现 @include**：递归加载，MAX_DEPTH=5，循环检测
-5. **HTML 注释剥离**：让维护者可以在指令文件里留注释
-6. **缓存 + 两种失效**：正确性刷新（无 hook）vs 可观测性刷新（有 hook）
-7. **worktree 去重**：嵌套工作树不重复加载主仓库规则
+- 精确的 managed 路径和目录命名
+- HTML 注释剥离的细粒度规则
+- 所有 Hook 名称和触发时机
+- worktree / canonical root 的具体实现细节
+- `claudemd.ts` 里庞大的缓存与统计代码
 
-**反模式警告**：
-- 不要让 Managed 层可被用户覆盖 — 组织策略是最高权威
-- 不要让仓库内的指令文件不受限制 — 恶意仓库可能注入危险规则
-- 不要忘了向上遍历 — monorepo 里子目录需要继承父目录的规则
-- 不要无限递归 @include — 深度限制 + 循环检测
-- 不要在代码块里解析 @include — 只在文本节点中解析
+真正该迁移的是：
+
+- 来源分层
+- 向上遍历的稳定顺序
+- 条件规则延迟激活
+- include 深度/循环/信任边界
+- 带 reason 的缓存失效
+
+---
+
+## 6. Adaptation Matrix
+
+| 场景 | 推荐来源层 | 特别注意 |
+|------|------------|----------|
+| 个人本地工具 | user + project + local | 先把条件规则和 include 做对 |
+| 团队仓库 / monorepo | managed + user + project + local | 目录遍历和子项目边界要稳定 |
+| 企业托管 | managed 强制 + project 可选 | 必须允许平台禁用项目级规则 |
+| IDE / LSP 集成 | user + workspace + per-file conditional | target file 变化应触发懒激活 |
+
+---
+
+## 7. Implementation Steps
+
+请分析用户的 `$ARGUMENTS`，然后：
+
+1. 定义规则来源层及优先级，不要先写拼接 prompt 的代码。
+2. 明确项目级目录遍历起点、终点和覆盖顺序。
+3. 把规则解析成结构化对象：`body / conditions / layer / provenance`。
+4. 实现 include resolver，并加上深度限制、循环检测和信任边界。
+5. 把无条件规则与条件规则分开存储，再根据 target path 激活。
+6. 为缓存增加 `load_reason`，至少区分 session start、manual reload、path activation。
+7. 补回归测试：目录优先级、条件命中、include 循环、外部路径拒绝、worktree 去重。
+
+验收标准：
+
+- 任一规则都能解释来源与激活原因
+- target path 变化只激活相关条件规则
+- include 不会无限递归或越界读取不可信路径
+- 项目遍历顺序稳定且可预测

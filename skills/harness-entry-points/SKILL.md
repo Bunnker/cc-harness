@@ -1,166 +1,220 @@
 ---
 name: harness-entry-points
-description: "多入口接入同一主链：CLI 交互/Headless/Bridge/SDK 三个入口 + REPL/print/bridge 三个渲染器 + query() 是真正的汇合点"
+description: "指导如何设计多入口 Agent Runtime：交互式 CLI / Headless SDK / Bridge 或 API 入口共用同一条 query 主链，I/O 与会话生命周期在 adapter 层解耦"
 user-invocable: true
 argument-hint: "<目标项目路径或模块名>"
 ---
 
-# 多入口架构
+# 多入口架构 (Harness Entry Points)
 
-> 参考实现：`src/entrypoints/cli.tsx`（CLI 路由）、`src/main.tsx`（主初始化）、`src/screens/REPL.tsx`（交互渲染）、`src/cli/print.ts`（Headless 渲染）、`src/QueryEngine.ts`（执行核心）、`src/bridge/bridgeMain.ts`（Bridge 入口）
+## 1. Problem — 多入口不是多套执行核心
 
-## 源码事实
+很多 Agent Runtime 会同时支持：
 
-### 1. 三个入口，不是一个
+- 交互式 CLI / REPL
+- Headless CLI / SDK
+- HTTP / WebSocket / Bridge
+- 后台任务或队列消费者
 
-```
-入口 1: CLI 交互模式
-  cli.tsx → main.tsx:main() → Commander → launchRepl() → REPL.tsx
-  REPL.tsx 是 React/Ink 组件，用 useQueueProcessor() 驱动 query()
+常见错误是为每个入口各写一套执行逻辑。这样一旦 query loop、权限、工具回流、session 恢复发生变化，所有入口都会漂移。
 
-入口 2: CLI Headless 模式（也是 SDK 的实际入口）
-  cli.tsx → main.tsx:main() → Commander → runHeadless() → print.ts
-  print.ts 中的 ask() 函数实例化 QueryEngine → submitMessage()
-
-入口 3: Bridge 模式（远程控制）
-  cli.tsx → 快速路径检测 → bridgeMain() → initReplBridge()
-  每条消息创建新的 QueryEngine 实例
-  不经过 main.tsx 的完整初始化路径
-```
-
-### 2. QueryEngine 不是"唯一执行引擎"——query() 才是汇合点
-
-```
-REPL.tsx:
-  → useQueueProcessor() 
-  → 内部调用 query() 函数
-  → 不直接实例化 QueryEngine
-
-print.ts (Headless/SDK):
-  → ask() generator 
-  → 实例化 QueryEngine
-  → QueryEngine.submitMessage() → 内部调用 query()
-
-Bridge:
-  → createQueryEngineForMessage()
-  → 每条消息新建 QueryEngine 实例
-  → QueryEngine.submitMessage() → 内部调用 query()
-```
-
-**真正的汇合点是 `query()` 函数**（`src/query.ts`），不是 QueryEngine 类。QueryEngine 是 query() 的有状态封装——管理消息历史、文件缓存、usage 追踪——但三个入口接入 query() 的方式不同。
-
-### 3. SDK 没有独立入口——复用 CLI Headless 路径
-
-```
-SDK（@anthropic-ai/claude-agent-sdk）:
-  → 生成子进程: claude -p --output-format stream-json
-  → 走 cli.tsx → main.tsx → runHeadless() → print.ts → ask()
-  → stdin: JSON 消息
-  → stdout: JSON 响应
-
-SDK 不是一个独立的代码路径。它是 CLI Headless 模式 + JSON 格式化输出。
-```
-
-### 4. Bridge 的 QueryEngine 是每消息新建的
-
-```
-Bridge 模式下：
-  claude.ai/code 发一条消息 → bridgeMain 接收
-  → 为这条消息创建新的 QueryEngine
-  → QueryEngine 处理 → 返回结果
-  → QueryEngine 实例销毁
-
-会话状态不靠 QueryEngine 实例保持——靠 recordTranscript() 和 restoreSessionMetadata()
-```
-
-### 5. 三个渲染器各自独立
-
-| 渲染器 | 文件 | 用途 | 特点 |
-|--------|------|------|------|
-| **REPL** | `src/screens/REPL.tsx` | 交互式 CLI | React/Ink TUI，实时渲染 |
-| **Print** | `src/cli/print.ts` | Headless + SDK | 文本/JSON 输出，无 UI |
-| **Bridge UI** | claude.ai/code（浏览器端） | 远程控制 | Bridge 进程发 WebSocket |
+通用问题是：**如何让不同入口共享同一条执行主链，只把输入、输出、权限交互、生命周期管理留在 adapter 层。**
 
 ---
 
-## 可迁移设计
+## 2. In Claude Code — 源码事实（精简版）
 
-### 核心逻辑和入口解耦
+> `源码事实` — 下面是对 CC 入口设计的提炼，不是要求照抄目录结构。
 
-你的项目应该做的：
+### 入口并不只有一个
+
+- CLI 交互模式：`cli.tsx -> main.tsx -> launchRepl() -> REPL.tsx`
+- Headless 模式：`cli.tsx -> main.tsx -> runHeadless() -> print.ts`
+- Bridge 模式：`cli.tsx -> bridgeMain() -> initReplBridge()`
+
+### 真正的汇合点不是 `QueryEngine`，而是 `query()`
+
+- REPL 通过 `useQueueProcessor()` 走到 `query()`
+- Headless / SDK 通过 `QueryEngine.submitMessage()` 走到 `query()`
+- Bridge 也是为每条消息创建 `QueryEngine`，最终仍然调用 `query()`
+
+也就是说：
+
+- `query()` 才是统一执行核心
+- `QueryEngine` 只是某些入口使用的有状态封装
+- 入口差异主要在 adapter 层，而不是主链
+
+### 渲染器和核心逻辑是分开的
+
+CC 至少有三类输出适配层：
+
+- REPL：React/Ink 交互 UI
+- Print：Headless / SDK 的文本或 JSON 输出
+- Bridge：浏览器端消费的远程协议
+
+### 会话状态不一定跟入口实例共生
+
+Bridge 模式下每条消息都会新建 `QueryEngine`。这说明：
+
+- 入口对象未必长期存活
+- 会话状态必须能脱离入口对象持久化
+- query 主链不能偷偷依赖“这个 adapter 一直在内存里”
+
+---
+
+## 3. Transferable Pattern — Core Query + Entry Adapter + Session Store
+
+### 核心模式
+
+把系统拆成三层：
+
+1. `query core`
+   负责消息流、模型调用、工具执行、恢复与退出语义。
+2. `entry adapter`
+   负责把 CLI / HTTP / SDK / Bridge 的输入翻译成统一请求，再把事件流渲染回各自协议。
+3. `session store`
+   负责消息历史、metadata、resume token、transcript。
+
+### 推荐边界
+
+```text
+user / client
+  -> entry adapter
+  -> query core
+  -> tool / model / policy layers
+  -> event stream
+  -> renderer / transport adapter
+```
+
+### 关键原则
+
+1. `query()` 只接受标准化输入，不直接读终端、socket 或 HTTP 请求对象。
+2. 权限交互通过 callback / policy interface 注入，不写死在核心循环里。
+3. 会话恢复依赖独立存储，不依赖 REPL/Bridge 实例生命周期。
+4. 输出用 event stream 表达，不让核心决定“是 print、UI 还是 JSON”。
+5. 每个入口都只是 adapter，不拥有独立业务规则。
+
+---
+
+## 4. Minimal Portable Version — Python 伪实现
 
 ```python
-# 核心：纯逻辑，不含 I/O 和 UI
-async def query(messages, tools, model, ...):
-    """所有入口最终都调用这个函数"""
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator
+
+
+@dataclass
+class QueryRequest:
+    session_id: str
+    messages: list[dict[str, Any]]
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class SessionStore:
+    def load(self, session_id: str) -> list[dict[str, Any]]:
+        return []
+
+    def append(self, session_id: str, events: list[dict[str, Any]]) -> None:
+        pass
+
+
+async def query(request: QueryRequest, runtime) -> AsyncIterator[dict[str, Any]]:
+    state = runtime.restore(request)
     while True:
-        response = await call_model(messages)
-        tool_calls = extract_tool_calls(response)
-        if not tool_calls:
-            yield response
+        response = await runtime.call_model(state)
+        yield {"type": "model_response", "payload": response}
+
+        if not response.get("tool_calls"):
             return
-        results = await execute_tools(tool_calls)
-        messages.extend(results)
-        yield response
 
-# 入口 1: 交互式
-class InteractiveREPL:
-    async def run(self):
-        while True:
-            user_input = await get_input()
-            async for msg in query(self.messages + [user_input], ...):
-                self.render(msg)
+        tool_events = await runtime.run_tools(response["tool_calls"])
+        for event in tool_events:
+            yield {"type": "tool_event", "payload": event}
+        state = runtime.advance(state, response, tool_events)
 
-# 入口 2: Headless / SDK
-class HeadlessRunner:
-    async def run(self, prompt: str):
-        async for msg in query([prompt], ...):
-            print(json.dumps(msg))
 
-# 入口 3: API 服务
-class APIHandler:
-    async def handle(self, request):
-        async for msg in query([request.prompt], ...):
-            yield msg
+class CliAdapter:
+    def __init__(self, runtime, store: SessionStore):
+        self.runtime = runtime
+        self.store = store
+
+    async def handle(self, session_id: str, user_text: str) -> None:
+        history = self.store.load(session_id)
+        request = QueryRequest(session_id=session_id, messages=[*history, {"role": "user", "content": user_text}])
+        emitted = []
+        async for event in query(request, self.runtime):
+            emitted.append(event)
+            self.render(event)
+        self.store.append(session_id, emitted)
+
+    def render(self, event: dict[str, Any]) -> None:
+        print(event)
+
+
+class HttpAdapter:
+    def __init__(self, runtime, store: SessionStore):
+        self.runtime = runtime
+        self.store = store
+
+    async def handle(self, body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        history = self.store.load(body["session_id"])
+        request = QueryRequest(session_id=body["session_id"], messages=[*history, *body["messages"]])
+        async for event in query(request, self.runtime):
+            yield event
 ```
 
-**关键原则**：`query()` 是纯函数（输入消息 → 输出消息），入口负责 I/O 和 UI。
+这个最小版表达的是：
 
-### 权限回调解耦
-
-不同入口的权限机制不同，用回调抽象：
-
-```python
-# 交互式：弹终端对话框
-async def interactive_permission(tool, input):
-    answer = await prompt_user(f"允许 {tool.name}?")
-    return answer
-
-# Headless/SDK：调用方提供的回调
-async def sdk_permission(tool, input):
-    return config.permission_callback(tool, input)
-
-# 无人值守：Hook 接管或自动拒绝
-async def headless_permission(tool, input):
-    hook_result = await run_hooks(tool, input)
-    if hook_result: return hook_result
-    return "deny"  # 没有人可以点"允许"
-```
+- 统一请求对象
+- 统一 query core
+- adapter 只做协议翻译与渲染
+- session 持久化与 adapter 解耦
 
 ---
 
-## 不要照抄的实现细节
+## 5. Do Not Cargo-Cult
 
-- REPL.tsx 是 5000+ 行的 React/Ink 组件——你的项目大概率不需要这个级别的终端 UI
-- print.ts 的 ask() 函数处理了很多 CC 特有的 SDK 协议细节（output-format, input-format）
-- Bridge 的 FlushGate 机制（启动时排队新消息等历史同步）是分布式特有的
-- Commander.js 的 preAction hook 用于懒初始化——你可以用更简单的启动逻辑
+不要照抄这些 CC 特有细节：
+
+- React/Ink REPL 组件树
+- Commander.js 的启动与路由方式
+- Bridge 的 FlushGate、浏览器同步协议
+- 每条消息是否新建 `QueryEngine` 的具体策略
+- SDK 的 `stream-json` 子进程协议
+
+真正该迁移的是边界：
+
+- 一个 query 主链
+- 多个 adapter
+- 独立 session store
+- 权限 / 渲染 / transport 通过接口注入
 
 ---
 
-## 反模式
+## 6. Adaptation Matrix
 
-- 不要说"QueryEngine 是唯一执行引擎"——它是 query() 的有状态封装，REPL 不直接用它
-- 不要为每种入口写独立的 Agent 逻辑——一个 query() + 多个 adapter
-- 不要在 query() 里写 I/O 代码——输出通过 yield/generator，让 adapter 决定怎么渲染
-- 不要假设 QueryEngine 实例在整个会话中存活——Bridge 模式每消息新建
+| 场景 | 推荐入口 | 核心注意点 |
+|------|----------|------------|
+| 个人 CLI 工具 | REPL + Headless | session 可用本地文件，权限可交互 |
+| SDK / Embedding | Headless / stream API | 保证输出事件稳定，避免 UI 耦合 |
+| Web IDE / 远程控制 | Bridge / WebSocket | adapter 可短生命周期，session 必须外置 |
+| 队列或批处理 | Headless worker | query core 不应依赖用户实时确认 |
+
+---
+
+## 7. Implementation Steps
+
+请分析用户的 `$ARGUMENTS`，然后：
+
+1. 列出你需要支持的入口类型，而不是先写某个 CLI 框架。
+2. 定义统一的 `QueryRequest / QueryEvent / SessionStore` 契约。
+3. 把核心执行链收敛到一个 `query()` 或等价主循环。
+4. 为每个入口实现 adapter：输入解析、权限回调、输出渲染、错误映射。
+5. 确认 session 恢复不依赖 adapter 生命周期。
+6. 用同一组 smoke tests 覆盖 REPL、headless、remote 三类入口。
+
+验收标准：
+
+- 新增入口时不需要复制 query 主链
+- Headless / REPL / Bridge 的行为差异只存在于 adapter 层
+- 会话恢复和 transcript 不依赖某个入口对象常驻内存
