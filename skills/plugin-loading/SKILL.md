@@ -1,7 +1,7 @@
 ---
 name: plugin-loading
 description: "Skill/插件加载：4 个独立 loader（file-based / plugin / bundled / MCP）+ 7 源合并顺序 + 条件激活 + disable-model-invocation 真实语义"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

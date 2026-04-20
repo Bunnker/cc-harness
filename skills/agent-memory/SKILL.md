@@ -1,7 +1,7 @@
 ---
 name: agent-memory
 description: "指导如何设计 Agent 跨会话记忆系统：4 类型分类 + 双路径保存 + 后台提取 + 过期检测 + 索引管理"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

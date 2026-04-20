@@ -1,7 +1,7 @@
 ---
 name: prompt-cache-economics
 description: "指导如何设计 Agent 的 Prompt Cache 成本工程：cache key 稳定性 + 选择性延迟 + 手术级变更 + 经济调度"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

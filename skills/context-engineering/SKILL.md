@@ -1,7 +1,7 @@
 ---
 name: context-engineering
 description: "指导如何设计 Agent 上下文工程：多源 System Prompt 组装 + 二级缓存 + 渐进压缩 + 预算分配"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

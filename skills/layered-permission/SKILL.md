@@ -1,7 +1,7 @@
 ---
 name: layered-permission
 description: "指导如何设计分层权限系统：顺序评估 + 早期返回 + deny 不可覆盖的 fail-safe 决策模型"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

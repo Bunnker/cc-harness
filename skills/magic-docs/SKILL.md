@@ -1,7 +1,7 @@
 ---
 name: magic-docs
 description: "文档如何随对话自动演进，而不是写完就过期"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

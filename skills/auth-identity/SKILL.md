@@ -1,7 +1,7 @@
 ---
 name: auth-identity
 description: "Agent 如何管理多来源凭证，同时不阻塞主循环也不泄露密钥"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

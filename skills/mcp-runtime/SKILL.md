@@ -1,7 +1,7 @@
 ---
 name: mcp-runtime
 description: "Agent 如何发现、连接和管理外部工具服务器，而不是把所有工具硬编码"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: voice-input
 description: "CLI Agent 如何支持语音输入，跨平台可靠且零配置"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: compact-system
 description: "长对话上下文膨胀时，如何通过分级压缩保持 Agent 可用"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

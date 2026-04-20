@@ -1,7 +1,7 @@
 ---
 name: settings-sync
 description: "用户设置和记忆如何跨设备同步，而不被锁定在单台机器上"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

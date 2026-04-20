@@ -1,7 +1,7 @@
 ---
 name: feature-flag-system
 description: "指导如何设计 Harness 特性门控：构建期 DCE + 运行期缓存评估 + 渐进发布 + 属性定向"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

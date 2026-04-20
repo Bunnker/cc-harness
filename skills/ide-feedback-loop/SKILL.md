@@ -1,7 +1,7 @@
 ---
 name: ide-feedback-loop
 description: "Agent 修改代码后如何自动感知引入的错误，而不是等用户报告"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 
