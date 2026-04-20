@@ -1,7 +1,7 @@
 ---
 name: plan-mode
 description: "指导如何设计 Agent 计划模式：思考与执行阶段分离，用户审批后才执行，支持团队审批工作流"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

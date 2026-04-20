@@ -1,7 +1,7 @@
 ---
 name: platform-integration
 description: "Agent 长时间运行时如何防止系统休眠，任务完成时如何通知用户"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

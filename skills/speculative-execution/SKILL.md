@@ -1,7 +1,7 @@
 ---
 name: speculative-execution
 description: "指导如何设计 Agent 投机执行系统：用户未提交前在隔离层预执行，命中则秒出结果，未命中则静默丢弃"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

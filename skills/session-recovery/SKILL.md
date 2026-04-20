@@ -1,7 +1,7 @@
 ---
 name: session-recovery
 description: "会话恢复：JSONL 追加写入 + parentUuid 链表重建 + 三个具名过滤函数 + 成本状态 sessionId 键恢复 + 文件历史快照"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

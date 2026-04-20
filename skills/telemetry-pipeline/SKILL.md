@@ -1,7 +1,7 @@
 ---
 name: telemetry-pipeline
 description: "Agent 如何收集运行数据用于改进，同时不泄露用户代码和隐私"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

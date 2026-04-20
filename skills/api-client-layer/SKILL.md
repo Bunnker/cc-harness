@@ -1,7 +1,7 @@
 ---
 name: api-client-layer
 description: "Agent 如何抽象多 LLM Provider，同时支持凭证刷新、重试和流式切换"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

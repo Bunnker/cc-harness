@@ -1,7 +1,7 @@
 ---
 name: runtime-summaries
 description: "Agent 运行时如何让用户看到进度，而不是等到完成才知道结果"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

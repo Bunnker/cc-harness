@@ -1,7 +1,7 @@
 ---
 name: startup-optimization
 description: "指导如何优化应用启动性能：import 阶段并行预取、懒加载、编译期死代码消除、分阶段启动"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

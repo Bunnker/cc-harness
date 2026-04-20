@@ -1,7 +1,7 @@
 ---
 name: team-memory-sync
 description: "团队成员如何共享项目知识，同时防止密钥泄露"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

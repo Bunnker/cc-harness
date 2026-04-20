@@ -1,7 +1,7 @@
 ---
 name: tip-system
 description: "用户等待时如何展示相关提示，而不是随机轮播或完全空白"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: policy-limits
 description: "企业如何远程控制 Agent 可用功能，同时不阻塞用户工作"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: event-hook-system
 description: "指导如何设计可扩展的事件 Hook 系统：声明式配置 + 5 种执行类型 + 决策合并 + 信任边界"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

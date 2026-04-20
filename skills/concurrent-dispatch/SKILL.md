@@ -1,7 +1,7 @@
 ---
 name: concurrent-dispatch
 description: "指导如何设计并发分区调度：只读操作并行、破坏性操作串行、Bash 错误级联取消的安全执行策略"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

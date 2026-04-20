@@ -1,7 +1,7 @@
 ---
 name: model-routing
 description: "Agent 如何在运行时动态选择模型，而不是硬编码一个模型 ID"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

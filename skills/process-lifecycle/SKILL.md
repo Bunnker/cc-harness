@@ -1,7 +1,7 @@
 ---
 name: process-lifecycle
 description: "Agent 进程如何优雅关闭，不丢数据不留孤儿不坏终端"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

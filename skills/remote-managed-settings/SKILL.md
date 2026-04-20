@@ -1,7 +1,7 @@
 ---
 name: remote-managed-settings
 description: "管理员如何远程覆盖 Agent 配置，同时不因网络故障阻塞用户"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

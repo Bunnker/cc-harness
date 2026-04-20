@@ -1,7 +1,7 @@
 ---
 name: command-sandbox
 description: "指导如何设计 Agent 命令安全沙箱：23 项检查 + Tree-sitter AST 解析 + 解析器差异攻击防御"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 

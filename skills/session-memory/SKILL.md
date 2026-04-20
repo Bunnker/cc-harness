@@ -1,7 +1,7 @@
 ---
 name: session-memory
 description: "会话中途压缩后如何保留工作状态，避免 Agent 失忆"
-user-invocable: true
+user-invocable: false
 argument-hint: "<目标项目路径或模块名>"
 ---
 
