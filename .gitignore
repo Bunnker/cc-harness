@@ -1,3 +1,10 @@
 .DS_Store
 Thumbs.db
 *.swp
+
+# Local Claude Code per-machine config (may contain MCP tokens, API keys)
+.claude/settings.local.json
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]
