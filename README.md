@@ -1,6 +1,6 @@
 # Harness Skills Pack
 
-Claude Code 的 **Agent Harness 设计/审计编排体系**，包含 **45 个 skill**（1 个协调器 + 1 个验证 worker + 1 个课程文档生成器 + 42 个可调度 worker）。
+Claude Code 的 **Agent Harness 设计/审计编排体系**，包含 **47 个 skill**（2 个协调器 + 1 个验证 worker + 1 个课程文档生成器 + 43 个可调度 worker）。
 
 Harness 的定位是 **设计/审计 harness，不是实现 harness**：它扫描项目 → 出执行计划 → 等用户确认 → 调度子 Agent 携带 skill 并行构建企业级 Agent 系统。每轮只做一件事：设计、编码、或审计。
 
@@ -26,14 +26,27 @@ git clone https://github.com/<your-user>/<this-repo>.git
 cd <this-repo>
 bash install.sh
 
+# 直接走统一安装器
+python scripts/install_skill_pack.py install --source . --lock-file skills.lock.json
+
 # PowerShell
 .\install.ps1
 
-# 手动
-cp -r skills/* ~/.claude/skills/
+# 升级 / 回滚
+python scripts/install_skill_pack.py upgrade --source . --lock-file skills.lock.json
+python scripts/install_skill_pack.py rollback --namespace cc-harness
 ```
 
-`install.sh` / `install.ps1` 会覆盖 `~/.claude/skills/` 下的同名 skill，安全可重入。
+`install.sh` / `install.ps1` 现在是 `install_skill_pack.py` 的包装器：
+
+- 运行时技能仍激活到 `~/.claude/skills/<skill>`
+- 包状态、版本仓库和备份保存在 `~/.claude/skill-packs/<namespace>/`
+- 默认使用 `skills.lock.json` 做版本 pin 和源内容校验
+- `bash install.sh --dry-run` / `.\install.ps1 --dry-run` 可先预览操作
+
+namespace 是**包管理命名空间**，不是运行时技能目录前缀；这保证 `/harness`、`/harness-lite` 入口不变。
+
+团队 bootstrap 示例见 [bootstrap/team.bootstrap.json](./bootstrap/team.bootstrap.json)，兼容矩阵见 [COMPATIBILITY.md](./COMPATIBILITY.md)。
 
 ---
 
@@ -44,6 +57,14 @@ cp -r skills/* ~/.claude/skills/
 ```
 
 例：`/harness "D:\ai code\Zero_magic"`
+
+轻量快路径：
+
+```
+/harness-lite <项目根目录路径> :: <任务说明>
+```
+
+例：`/harness-lite "D:\ai code\Zero_magic" :: 修复 src/cache.ts 的 TTL 计算并补一个单测`
 
 ### 工作协议
 
@@ -59,109 +80,72 @@ Harness 是一个 **协调器（Coordinator）**，它的唯一职责是 **Plan 
 
 ---
 
-## Skill 目录（45 个）
+## Skill 目录
 
-每个 skill 都附带 **Do Not Cargo-Cult**（标 `portable` 的）和 **Minimal Portable Version**。`cc-bound` 的 skill 仍以 Claude Code 源码解剖为主，跨项目使用时需人工判断哪些是 CC 特有实现。
+以下概览由 `manifest/skills.json` 生成。详细调度元数据请查看 [`skills/harness/skill-catalog.md`](skills/harness/skill-catalog.md)。
 
-### 协调层（non-worker，2 个）
+<!-- GENERATED:SKILL_SUMMARY:START -->
 
-| skill | 作用 |
-|------|------|
-| [`harness`](skills/harness/) | 总协调器，扫描/计划/分派/汇总；本身不做实质工作 |
-| [`agent-architecture-curriculum`](skills/agent-architecture-curriculum/) | 把 Agent runtime 源码理解重构为 Diataxis 课程化文档 |
+- 总计：`47` 个 skill
+- 角色：`44` 个 worker，`3` 个 non-worker
+- 可移植性：`30` 个 portable，`17` 个 cc-bound
+- 入口模式：`9` 个 direct，`37` 个 orchestrated，`1` 个 internal-only
 
-### Harness 基础设施 worker（1 个）
+| 分类 | 数量 | 默认阶段 | 说明 |
+|------|------|----------|------|
+| 协调层 | 3 | 按 skill 决定 | role=`non-worker` |
+| Harness 基础设施层 | 1 | 按 skill 决定 | role=`worker` |
+| 基础契约层 | 7 | 阶段 0：契约定义 | role=`worker` |
+| Agent 核心层 | 9 | 按 skill 决定 | role=`worker` |
+| 能力扩展层 | 8 | 按 skill 决定 | role=`worker` |
+| 生产化层 | 5 | 阶段 7：生产化 | role=`worker` |
+| 长会话扩展层 | 2 | 阶段 3：长会话支持 | role=`worker` |
+| 记忆扩展层 | 2 | 阶段 4：跨会话与记忆 | role=`worker` |
+| IDE / 输入扩展层 | 3 | 阶段 5：可扩展性 | role=`worker` |
+| 企业 / 生产化扩展层 | 5 | 阶段 8：企业治理 | role=`worker` |
+| 方法论 | 2 | 按 skill 决定 | role=`worker` |
 
-| skill | 作用 | 何时调度 |
-|------|------|---------|
-| [`harness-verify`](skills/harness-verify/) | 编码/审计轮的验证 worker：跑 commands、生成 diff、产出 `verification.md` + `scorecard.json` + `commands.log` | **编码/审计轮的最后一个串行组必须是它** |
+详细调度元数据请查看 [`skills/harness/skill-catalog.md`](skills/harness/skill-catalog.md)。
 
-### 基础契约层（6 个，`portability: mixed`）
+<!-- GENERATED:SKILL_SUMMARY:END -->
 
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`unified-tool-interface`](skills/unified-tool-interface/) | 工具抽象接口 + buildTool 工厂 | 设计工具系统的第一步 | — |
-| [`config-cascade`](skills/config-cascade/) | 5 源配置级联 + 热重载 | 构建配置系统 | — |
-| [`api-client-layer`](skills/api-client-layer/) | 多 Provider API 客户端 | 构建 LLM 调用层 | — |
-| [`auth-identity`](skills/auth-identity/) | 认证 + 安全存储 + 多租户 | 构建认证系统 | — |
-| [`harness-entry-points`](skills/harness-entry-points/) | CLI / SDK / Bridge 统一入口 | 设计多形态入口 | unified-tool-interface, config-cascade |
-| [`instruction-file-system`](skills/instruction-file-system/) | 4 层指令遍历 + 条件规则 + @include | 构建指令加载系统 | config-cascade |
+---
 
-### Agent 核心层（9 个）
+## Manifest 维护
 
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`agent-loop`](skills/agent-loop/) | 循环状态机 + 10 种终态 + 7 种恢复 | 构建主循环 | unified-tool-interface |
-| [`layered-permission`](skills/layered-permission/) | 顺序评估 + 早期返回 + bypass-immune | 构建权限控制 | unified-tool-interface |
-| [`agent-tool-budget`](skills/agent-tool-budget/) | 延迟加载 + 结果截断 + token 续跑 | 优化工具 token 消耗 | unified-tool-interface |
-| [`concurrent-dispatch`](skills/concurrent-dispatch/) | 并发分区调度 + 错误级联取消 | 构建工具执行调度器 | unified-tool-interface |
-| [`context-engineering`](skills/context-engineering/) | 多源 system prompt + 渐进压缩 + 二级缓存 | 构建上下文管理 | agent-loop |
-| [`agent-resilience`](skills/agent-resilience/) | Withhold + 5 级恢复 + 5 级压缩 | 构建错误恢复和长会话 | agent-loop, context-engineering |
-| [`agent-memory`](skills/agent-memory/) | 4 类型记忆 + 双路径保存 + 过期检测 | 构建跨会话记忆 | agent-loop |
-| [`agent-reflection`](skills/agent-reflection/) | 纠正+确认学习 + auto-dream + denial tracking | 构建自我改进机制 | agent-memory |
-| [`multi-agent-design`](skills/multi-agent-design/) | 5 条真实分支（async/sync/teammate/fork/remote） | 构建多 Agent 系统 | agent-loop, concurrent-dispatch |
+以下命令用于本地校验入口策略与派生文档：
 
-### 能力扩展层（8 个）
+```bash
+python scripts/bootstrap_skill_manifest.py
+python scripts/check_skill_exposure.py --fix
+python scripts/check_skill_exposure.py
+python scripts/validate_manifest_schema.py
+python scripts/validate_skill_frontmatter.py
+python scripts/generate_manifest_docs.py --check
+python scripts/generate_manifest_docs.py
+python scripts/generate_pack_lock.py --check
+python scripts/validate_harness_lite_examples.py
+python scripts/validate_parallel_diff_attribution.py
+python scripts/validate_worktree_isolation.py
+python scripts/validate_installer_flow.py
+python skills/harness/hooks/render-verification-artifacts.py --help
+python skills/harness/hooks/run-harness-verify.py --help
+python scripts/install_skill_pack.py show-state --namespace cc-harness
+```
 
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`command-sandbox`](skills/command-sandbox/) | 23 项 Bash 安全检查 + Tree-sitter AST | 构建命令执行安全层 | layered-permission |
-| [`plugin-loading`](skills/plugin-loading/) | 4 层加载器 + 7 源合并 + 条件激活 | 构建插件/扩展系统 | unified-tool-interface |
-| [`event-hook-system`](skills/event-hook-system/) | 声明式事件拦截 + 5 种执行类型 + 决策合并 | 构建事件扩展点 | — |
-| [`model-routing`](skills/model-routing/) | 动态模型选择 + 订阅层级 | 构建模型路由 | api-client-layer |
-| [`plan-mode`](skills/plan-mode/) | 思考/执行分离 + 审批工作流 | 构建计划审批机制 | layered-permission |
-| [`session-recovery`](skills/session-recovery/) | UUID 链 + 三层清理 + 成本持久化 | 构建会话恢复 | context-engineering |
-| [`speculative-execution`](skills/speculative-execution/) | CoW 预执行 + 边界停止 | 构建预测性优化 | agent-loop, layered-permission |
-| [`mcp-runtime`](skills/mcp-runtime/) | MCP 发现 / 连接 / 映射 | 集成 MCP 协议 | unified-tool-interface |
-
-### 生产化层（5 个）
-
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`startup-optimization`](skills/startup-optimization/) | 并行预取 + DCE + 分阶段启动 | 优化启动性能 | — |
-| [`telemetry-pipeline`](skills/telemetry-pipeline/) | 多 Sink + 采样 + PII 过滤 | 构建可观测性 | — |
-| [`process-lifecycle`](skills/process-lifecycle/) | 信号处理 + LIFO 清理 | 构建进程管理 | — |
-| [`feature-flag-system`](skills/feature-flag-system/) | 构建期 DCE + 运行期缓存评估 | 构建特性门控 | — |
-| [`prompt-cache-economics`](skills/prompt-cache-economics/) | cache key 稳定性 + 选择性延迟 | 优化 API 成本 | agent-tool-budget, context-engineering |
-
-### 长会话扩展层（2 个）
-
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`compact-system`](skills/compact-system/) | 4 级压缩流水线 + 微压缩 + SM Compact | 构建上下文压缩系统 | context-engineering |
-| [`session-memory`](skills/session-memory/) | 会话级后台记忆提取 + 10 段模板 | 构建会话内记忆 | agent-loop |
-
-### 记忆扩展层（2 个）
-
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`team-memory-sync`](skills/team-memory-sync/) | 团队记忆双向同步 + 密钥扫描 | 构建团队知识共享 | agent-memory, auth-identity |
-| [`magic-docs`](skills/magic-docs/) | 标记检测 + 后台子 Agent 文档更新 | 构建自动维护文档 | agent-loop, event-hook-system |
-
-### IDE / 输入扩展层（3 个）
-
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`ide-feedback-loop`](skills/ide-feedback-loop/) | LSP 多服务器 + 诊断基线 + 被动反馈 | 构建 IDE 代码质量闭环 | mcp-runtime, event-hook-system |
-| [`tip-system`](skills/tip-system/) | 条件过滤 + LRU 调度 + spinner 集成 | 构建上下文感知提示 | config-cascade |
-| [`voice-input`](skills/voice-input/) | 多平台音频捕获 + 流式 STT | 构建语音输入能力 | — |
-
-### 企业 / 生产化扩展层（5 个）
-
-| skill | purpose | best_for | depends_on |
-|------|---------|----------|------------|
-| [`runtime-summaries`](skills/runtime-summaries/) | Away / Agent / ToolUse 三粒度摘要 | 构建运行时可观测性 | multi-agent-design |
-| [`platform-integration`](skills/platform-integration/) | 防休眠 + 跨平台通知 | 构建平台适配层 | — |
-| [`policy-limits`](skills/policy-limits/) | fail-open 远程策略门控 | 构建企业功能管控 | auth-identity |
-| [`remote-managed-settings`](skills/remote-managed-settings/) | Checksum 增量拉取 + 安全审查 | 构建企业远程配置 | auth-identity, config-cascade |
-| [`settings-sync`](skills/settings-sync/) | 增量上传 + 按环境下载 | 构建跨设备配置同步 | auth-identity |
-
-### 方法论（2 个，不产出代码）
-
-| skill | purpose | best_for |
-|------|---------|----------|
-| [`eval-driven-design`](skills/eval-driven-design/) | 假设命名 + 前后对比评分 + A/B 测试 | 迭代 prompt 设计 |
-| [`architecture-invariants`](skills/architecture-invariants/) | 6 条不变式 + 进化轨迹 + 被否决方案 | 架构评审 / 决策记录 |
+- `bootstrap_skill_manifest.py`：从现有 skill/frontmatter 与 catalog 迁移出 `manifest/skills.json`
+- `check_skill_exposure.py`：校验或同步 `user-invocable` 暴露面
+- `validate_manifest_schema.py`：按仓库内 schema 校验 `manifest/skills.json`
+- `validate_skill_frontmatter.py`：校验每个 `SKILL.md` 的 frontmatter 规则
+- `generate_manifest_docs.py`：从 manifest 生成 README 概览、`skill-catalog.md`、`dependency-graph.md`
+- `generate_pack_lock.py`：生成或校验 `skills.lock.json`
+- `install_skill_pack.py`：统一安装器，支持 install / upgrade / rollback / bootstrap / show-state
+- `validate_harness_lite_examples.py`：校验 `harness-lite` 的 allow/reject 边界样例，防止快路径越权
+- `validate_parallel_diff_attribution.py`：回归并发 worker 的 diff 归因，覆盖路径不重叠和路径重叠两类场景
+- `validate_worktree_isolation.py`：回归 `isolation: worktree` 流，验证主仓改动不会污染隔离 diff
+- `validate_installer_flow.py`：演练 install / upgrade / rollback / bootstrap 冒烟流程
+- `render-verification-artifacts.py`：从 trace 目录派生 `verification.md` 和 `scorecard.json`
+- `run-harness-verify.py`：标准验证入口，串联 commands、diff、verification、scorecard、failure-reason 生成
 
 ---
 
@@ -225,6 +209,8 @@ harness-entry-points  ← 最后做（依赖所有核心接口）
 
 ## 状态与 Trace
 
+artifact 命名与最低完整性要求见 [`skills/harness/trace-artifact-contract.md`](skills/harness/trace-artifact-contract.md)。
+
 Harness 在目标项目下维护：
 
 ```
@@ -233,8 +219,14 @@ Harness 在目标项目下维护：
 ├── harness-hooks.json          # 可选：自定义 PreScan/PrePlan/PostExecute hook
 ├── harness-lab/
 │   ├── trace-index.json        # 全历史 trace 索引（不删旧轮）
+│   ├── worktrees/              # 可选：isolation=worktree 时的隔离副本
 │   └── traces/
 │       └── <date>-<stage>-<type>/
+│           ├── worker-{n}-prompt.md
+│           ├── worker-{n}-result.md
+│           ├── worker-{n}-worktree.json
+│           ├── worker-{n}-diff.patch
+│           ├── worker-{n}-diff.json
 │           ├── verification.md
 │           ├── scorecard.json
 │           ├── commands.log
@@ -259,5 +251,13 @@ git push
 目标机器：
 
 ```bash
-git pull && bash install.sh
+git pull
+python scripts/generate_pack_lock.py --check
+python scripts/install_skill_pack.py upgrade --source . --lock-file skills.lock.json
+```
+
+如果需要回滚：
+
+```bash
+python scripts/install_skill_pack.py rollback --namespace cc-harness
 ```

@@ -1,26 +1,30 @@
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Src = Join-Path $ScriptDir "skills"
-$Dest = Join-Path $HOME ".claude\skills"
+$Installer = Join-Path $ScriptDir "scripts\install_skill_pack.py"
+$LockFile = Join-Path $ScriptDir "skills.lock.json"
 
-if (-not (Test-Path $Src)) {
-    Write-Error "Source not found: $Src"
+if (-not (Test-Path $Installer)) {
+    Write-Error "Installer not found: $Installer"
     exit 1
 }
 
-if (-not (Test-Path $Dest)) {
-    New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+$Python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $Python) {
+    $Python = Get-Command py -ErrorAction SilentlyContinue
 }
 
-$count = 0
-Get-ChildItem -Path $Src -Directory | ForEach-Object {
-    $target = Join-Path $Dest $_.Name
-    if (Test-Path $target) {
-        Remove-Item -Recurse -Force $target
-    }
-    Copy-Item -Recurse -Path $_.FullName -Destination $target
-    $count++
+if (-not $Python) {
+    Write-Error "python/py not found"
+    exit 1
 }
 
-Write-Host "Installed $count skills to $Dest"
+$ArgsList = @(
+    $Installer,
+    "install",
+    "--source", $ScriptDir,
+    "--lock-file", $LockFile
+) + $args
+
+& $Python.Source @ArgsList
+exit $LASTEXITCODE
