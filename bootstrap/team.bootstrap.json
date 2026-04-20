@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "namespace": "cc-harness",
+  "mode": "upgrade",
+  "source": "..",
+  "lock_file": "../skills.lock.json",
+  "version": "0.2.0-alpha.0",
+  "entrypoints": [
+    "harness",
+    "harness-lite"
+  ],
+  "notes": [
+    "Namespace is package metadata only; runtime entrypoints remain /harness and /harness-lite.",
+    "Bootstrap should be committed by consuming teams to pin version and installer behavior."
+  ]
+}

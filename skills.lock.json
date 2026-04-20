@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "pack": {
+    "name": "cc-harness",
+    "namespace": "cc-harness",
+    "version": "0.2.0-alpha.0",
+    "manifest_version": 1,
+    "skill_count": 46,
+    "direct_entrypoints": [
+      "agent-architecture-curriculum",
+      "architecture-invariants",
+      "config-cascade",
+      "eval-driven-design",
+      "harness",
+      "harness-entry-points",
+      "harness-lite",
+      "instruction-file-system",
+      "unified-tool-interface"
+    ],
+    "manifest_sha256": "342dea53807f4a055b498f626df58db54cf0f74f8a75eb8b13ddfb40b7778f70",
+    "skills_tree_sha256": "06d3f2e935806e4fed90fb0c5de5a607d24e88c5bc7bc46483c458b7faaa81cf"
+  }
+}

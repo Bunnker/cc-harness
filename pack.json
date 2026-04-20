@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "name": "cc-harness",
+  "namespace": "cc-harness",
+  "version": "0.2.0-alpha.0",
+  "skills_dir": "skills",
+  "manifest_path": "manifest/skills.json",
+  "lock_file": "skills.lock.json",
+  "compatibility_matrix": "COMPATIBILITY.md",
+  "release_template": "RELEASE_TEMPLATE.md",
+  "installer": {
+    "runtime_relative_dir": ".claude/skills",
+    "state_relative_dir": ".claude/skill-packs",
+    "activation_strategy": "direct_skill_names",
+    "backup_strategy": "snapshot_restore",
+    "supports": [
+      "dry_run",
+      "upgrade",
+      "rollback",
+      "version_pin",
+      "namespace_install",
+      "bootstrap"
+    ]
+  }
+}
