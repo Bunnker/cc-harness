@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/cc-harness/skills.schema.json",
+  "title": "cc-harness skill manifest",
+  "type": "object",
+  "required": [
+    "version",
+    "categories",
+    "skills",
+    "parallel_groups",
+    "portability_history"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/category"
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skill"
+      }
+    },
+    "parallel_groups": {
+      "type": "object",
+      "required": [
+        "always",
+        "design_only"
+      ],
+      "properties": {
+        "always": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parallelGroup"
+          }
+        },
+        "design_only": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parallelGroup"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "portability_history": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/historyItem"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "category": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "worker",
+            "non-worker"
+          ]
+        },
+        "default_stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_target_path_policy": {
+          "type": "string",
+          "enum": [
+            "coordinator_defined",
+            "not_applicable"
+          ]
+        },
+        "default_value_assessment": {
+          "type": "string",
+          "enum": [
+            "retain",
+            "situational",
+            "discard"
+          ]
+        },
+        "default_invocation_mode": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "orchestrated",
+            "internal_only"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "skill": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "category",
+        "portability",
+        "purpose",
+        "depends_on",
+        "parallel_safe_with",
+        "user_invocable"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "portability": {
+          "type": "string",
+          "enum": [
+            "portable",
+            "cc-bound"
+          ]
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "best_for": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parallel_safe_with": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parallel_mode": {
+          "type": "string",
+          "enum": [
+            "always",
+            "design_only",
+            "never",
+            "contextual"
+          ]
+        },
+        "needs_user_context": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user_invocable": {
+          "type": "boolean"
+        },
+        "default_invocation_mode": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "orchestrated",
+            "internal_only"
+          ]
+        },
+        "target_path_policy": {
+          "type": "string",
+          "enum": [
+            "coordinator_defined",
+            "not_applicable"
+          ]
+        },
+        "value_assessment": {
+          "type": "string",
+          "enum": [
+            "retain",
+            "situational",
+            "discard"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "parallelGroup": {
+      "type": "object",
+      "required": [
+        "skills",
+        "note"
+      ],
+      "properties": {
+        "skills": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "historyItem": {
+      "type": "object",
+      "required": [
+        "date",
+        "summary"
+      ],
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
