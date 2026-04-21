@@ -360,20 +360,35 @@
 - [speculation] 基于 2 个样本（`prompt-self-save-v1` + W-VERIFY-NEW-1）推断的**共同模式**：凡是让 LLM 做**确定性机械映射**（字段名、枚举值、类型标签）的事，多半该下移到代码层。样本基数小，作为启发式可参考，不作为硬规则
 - 建议 UNIFIED-ROADMAP §M2 低 ROI 特征表追加一行："依赖 LLM 做确定性机械映射（字段名 / 枚举 / 类型标签）"
 
-### 9.2 Archive-Ready 用 general-purpose Worker 做独立评审（E5 活体证据）
+### 9.2 Archive-Ready 用 general-purpose Worker 做独立评审（**不是** E5 的实战证据）
 
 **审查机制原文**（见 `docs/audit/2026-04-21_archive_ready_final.md` 开头）：
 > 审查人：独立 general-purpose Worker + 主会话现场验证命令见证
 
-**对 E5（独立审计作为风险触发默认）的含义**：
-- E5 当前是 "multi-round / medium / proposed"
-- **Repo B 确实在用独立 agent 做 change-level 审，但用的是 general-purpose agent，不是 `harness-verify` skill**
-- 说明：
-  - [speculation] E5 的必要性有**初步实战支持**——Archive-Ready 报告显式使用独立评审人。但需要说明：**这是本项目 1 次选择**，不是 OpenSpec `archive` 工作流的强制要求（已核对 `.claude/commands/opsx/archive.md` 无独审硬要求），因此不能从此样本推广到"E5 必然在所有项目都被需要"
-  - 事实：现有 `harness-verify` skill 没被选中承担这个角色
-- [speculation] 未被选中的原因**可能是** `harness-verify` 针对 **Phase 级**验证，而 Archive-Ready 是 **change 级**（跨 Phase）。此推测未经多项目对照验证
-- **浮出的设计问题**：`harness-verify` 粒度是否需要拆成 Phase-level 和 Change/Stage-level 两档？[speculation] 如果补 change-level mode（跨 Phase 聚合 diff、跨 spec 交叉检查），**可能**替代 general-purpose agent 的角色——但这只是从接口能力角度的初步推断，未验证其 prompt 质量是否足够匹配现有 general-purpose 的审查严格度
-- 建议：做 E5 前先回答这个粒度问题，但不急着把 Archive-Ready 的单次做法升级成普遍规则
+**本节初稿（已撤回）** 把这件事当作 E5（独立审计作为风险触发默认）的实战证据，并由此推断 `harness-verify` 需要拆成 "Phase-level vs Change-level" 两档粒度。**用户指出这个诊断方向是错的**，修正如下：
+
+**实际的工作流关系**：
+- 本项目这次的工作流是 **OpenSpec 驱动**（`/opsx:apply` → Phase 1-5 实现 → `openspec-verify-change` skill → `/opsx:archive`），不是 harness 驱动
+- `openspec-verify-change` 和 `harness-verify` 是**两个不同语义的 verify skill**，不是"同一个 verify 的两种粒度"：
+  - `openspec-verify-change`：查**实现是否匹配 change artifacts**（spec delta 覆盖率、tasks 35/35 完成状态、Given/When/Then 场景覆盖）
+  - `harness-verify`：查**代码质量 6 维 + 独立代码审计**（build/lint/typecheck、smoke、structural_fidelity、code_quality 等）
+- 因此 `harness-verify` 在这次 change 里**从未进入工作流**——不是"被选中但没用"，是 OpenSpec 工作流接管了整个 change 生命周期，harness-verify 不在职责范围内
+
+**Archive-Ready 独立审的真实定位**：
+- 独立 general-purpose Worker 评审是**这次 OpenSpec 归档流程的选择**（项目自发，非 OpenSpec 强制，也非 harness 规划驱动）
+- 已核对 `.claude/commands/opsx/archive.md` 无独审硬要求
+- 这个证据**不能用来印证 E5**——因为 E5 是 harness 轨道的规划，Archive 独立审是 OpenSpec 轨道的项目自选做法
+
+**对 E5 的真实含义**（相比初稿收紧）：
+- 本次观察**没有为 E5 增加证据厚度**；原报告（§6 建议 5）对 E5 的 "medium / proposed" 判定保持原样
+- 原报告推断的 "`harness-verify` 需要拆 Phase/Change 两档粒度" 这个设计问题**也收回**——真正的问题不是粒度，是**两套工作流（OpenSpec / harness）在同一项目里怎么共存**，而这个问题不由 E5 决定
+
+**真正浮出的新问题**（独立于 E5）：
+- OpenSpec 和 harness 在 Zero Magic 里是**并行轨道**，不是 harness 的子集
+- harness-skills-pack 是否需要写一份 "**harness ↔ OpenSpec 共存指南**"：何时走 harness、何时走 OpenSpec、两者的 verify 如何不重叠？
+- [speculation] 这可能是值得新开一条 **E7（工作流共存指南）** 的题目，但证据基础和 E5/E6 一样单薄（1 项目），不紧急
+
+**教训（关于本报告方法论）**：§9.2 初稿犯的错是典型的**把现象强行套进已有框架**——看到 "independent audit" 就往 E5 上套，没先确认该现象到底属于哪条工作流轨道。下次同类观察要先问 "这件事发生在哪条工作流里" 再归因。
 
 ### 9.3 fengshui-phase-coordinator 模式完整验证（E2 证据加厚）
 
@@ -412,13 +427,15 @@ Archive-Ready 用 **完整性 / 正确性 / 一致性** 三维，不是 `harness
 |----|--------|--------|---------|
 | E2 phase-coordinator | multi-round / medium | multi-round / **low-medium** | 9.3 — 完整 5 Phase successful run |
 | E4 M2 启发式 | ✅ 已合（PR #19）| 可追加"LLM 确定性映射"低 ROI 反例 | 9.1 — W-VERIFY-NEW-1 |
-| E5 独立审计风险触发 | multi-round / medium | multi-round / medium（**新设计问题**：Phase-level vs Change-level 粒度） | 9.2 — Archive-Ready 用 general-purpose agent 而非 harness-verify |
+| E5 独立审计风险触发 | multi-round / medium | multi-round / medium（**保持原评估**——§9.2 初稿推断已收回，本次观察不为 E5 加证据厚度）| 9.2 — Archive 独立审属 OpenSpec 归档做法，不是 harness 规划驱动 |
+| [new] E7? harness ↔ OpenSpec 共存指南 | — | [speculation] 值得思考但不紧急——1 项目样本 | 9.2 真正浮出的新问题 |
 | [new] E6? Vertical scorecard 扩展 | — | 暂列为 speculation，等第二个 vertical 项目再决定是否立项 | 9.4 |
 
 **综合下一步建议**：
 1. **小增量**：把 W-VERIFY-NEW-1 的"LLM 确定性映射"反例追加到 UNIFIED-ROADMAP §M2 低 ROI 表（5 分钟）
 2. **中增量**：启动 E2，用 `fengshui-phase-coordinator.md` 作为 reference implementation
-3. **启动 E5 前先回答**：`harness-verify` 是否要分 Phase-level 和 Change-level 两档粒度？[speculation] 这个设计决策**可能**影响 E5 的实现边界——基于 §9.2 的单次观察推断，尚未经多项目验证
+3. **E5 优先级不变**：本次观察不为 E5 提供额外证据（见 §9.2 修正）；如果未来遇到真正的 harness 轨道内的独立审需求，再基于那个证据讨论 E5
+4. **[speculation] 考虑新增 E7**：Zero Magic 展示了 harness 和 OpenSpec 是两条并行工作流。如果这种并行在其他项目也出现，可能值得写一份共存指南。但仅 1 项目样本，不急着立项
 
 ### 9.6 本次更新的限制
 
