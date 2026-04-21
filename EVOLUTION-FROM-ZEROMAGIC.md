@@ -330,3 +330,98 @@
 - 未发现不可读的 Repo A 指定文件。
 - Repo B 的 `leaderboard.json`、`candidates/*`、`2026-04-14-full-audit/*`、`2026-04-17-round3-audit/*` 在 `2537e06` 当前工作树中未直接列出，但其历史版本已从 `f9dd02e` 读取并用于本报告。
 - 本报告没有修改 Repo A 任一 skill 文件，也没有修改 Repo B 任一文件。
+
+---
+
+## 9. 2026-04-21 更新：Phase 5 Archive-Ready 实战观察
+
+> **上下文**：原报告 §1-§8 基于 2026-04-20 `feature/fengshui-mvp` HEAD = `2537e06` 撰写。用户在该分支继续开发 1 天，推 18 commits 完成 `add-fengshui-demo-workbench` OpenSpec change 的 Phase 1-5 + Archive-Ready 验证（HEAD = `b930fea`）。本节仅**追加新证据**，不修改原报告 §1-§7 结论。
+
+### 9.1 新增证据：W-VERIFY-NEW-1（LLM 字段映射失败 → 代码层修复）
+
+**场景**：Phase 5 手工联调，华泰风水评估 case
+- formSnapshot 6 字段全填，qwen-plus persona/guard prompt 仍按"缺失清单"返回 307 字节占位输出
+- 根因：LLM 无法稳定建立**英文 key → 中文 label 映射**
+
+**修复方案 A（代码层）**：
+- Runtime 新增 `parse_form_snapshot_from_message()` + `detect_required_fields()`
+- `MISSING_FIELD_GUARD_PROMPT_WITH_DETECTION` 两态 prompt 把"已检测到字段 / 检测为缺失字段"显式注入
+- LLM 不再做映射，只做语义判断
+- 结果：华泰 case run_id `2121318c...` 端到端见证 `code-layer filled=6 missing=0`，runtime 测试从 28 → 39 全绿
+
+**直接证据**：
+- 提交 `9e9c815` 修复: Phase 5 联调 P0 - 流水线 artifact + LLM 字段识别
+- 提交 `1970043` Archive-Ready 审计追加 W-VERIFY-NEW-1 收口记录
+- `docs/audit/2026-04-21_archive_ready_final.md` W-VERIFY-NEW-1 段
+
+**对 E4（M2 实证启发式）的增量**：
+- 原 E4 低 ROI 反例 `prompt-self-save-v1` 讲的是"让 Worker 自保存 prompt 失败"——Worker 执行侧问题
+- W-VERIFY-NEW-1 是同一类失败模式的**新变种**——不是 Worker 不愿做，是 LLM 做不稳（英文→中文语义映射）
+- [speculation] 基于 2 个样本（`prompt-self-save-v1` + W-VERIFY-NEW-1）推断的**共同模式**：凡是让 LLM 做**确定性机械映射**（字段名、枚举值、类型标签）的事，多半该下移到代码层。样本基数小，作为启发式可参考，不作为硬规则
+- 建议 UNIFIED-ROADMAP §M2 低 ROI 特征表追加一行："依赖 LLM 做确定性机械映射（字段名 / 枚举 / 类型标签）"
+
+### 9.2 Archive-Ready 用 general-purpose Worker 做独立评审（E5 活体证据）
+
+**审查机制原文**（见 `docs/audit/2026-04-21_archive_ready_final.md` 开头）：
+> 审查人：独立 general-purpose Worker + 主会话现场验证命令见证
+
+**对 E5（独立审计作为风险触发默认）的含义**：
+- E5 当前是 "multi-round / medium / proposed"
+- **Repo B 确实在用独立 agent 做 change-level 审，但用的是 general-purpose agent，不是 `harness-verify` skill**
+- 说明：
+  - [speculation] E5 的必要性有**初步实战支持**——Archive-Ready 报告显式使用独立评审人。但需要说明：**这是本项目 1 次选择**，不是 OpenSpec `archive` 工作流的强制要求（已核对 `.claude/commands/opsx/archive.md` 无独审硬要求），因此不能从此样本推广到"E5 必然在所有项目都被需要"
+  - 事实：现有 `harness-verify` skill 没被选中承担这个角色
+- [speculation] 未被选中的原因**可能是** `harness-verify` 针对 **Phase 级**验证，而 Archive-Ready 是 **change 级**（跨 Phase）。此推测未经多项目对照验证
+- **浮出的设计问题**：`harness-verify` 粒度是否需要拆成 Phase-level 和 Change/Stage-level 两档？[speculation] 如果补 change-level mode（跨 Phase 聚合 diff、跨 spec 交叉检查），**可能**替代 general-purpose agent 的角色——但这只是从接口能力角度的初步推断，未验证其 prompt 质量是否足够匹配现有 general-purpose 的审查严格度
+- 建议：做 E5 前先回答这个粒度问题，但不急着把 Archive-Ready 的单次做法升级成普遍规则
+
+### 9.3 fengshui-phase-coordinator 模式完整验证（E2 证据加厚）
+
+18 commits 按 Phase 1-5 节奏完整推进：
+
+| Phase | 关键 commits |
+|-------|-------------|
+| Phase 1 数据模型与契约 | `e8cd20e` `2537e06` |
+| Phase 2 Gateway 业务 API | `23d8180` |
+| Phase 3 Runtime Agent | `7cad4dd` |
+| Phase 4 Frontend 工作台 + W1/W2/W5 修复 | `65af314` `130de92` `d04f9eb` |
+| Phase 5 最终收口 + W-VERIFY-NEW-1 | `6677611` `9e9c815` `1970043` `3172870` `b930fea` |
+
+每 Phase 有独立验证 + Codex 审查；最终 Archive-Ready 三维验收全绿、OpenSpec change 正式归档。
+
+**对 E2（phase-coordinator skill）的含义**：
+- 原评估 "multi-round / medium"，基于单个 `fengshui-phase-coordinator.md` 文件推断
+- 新证据：**完整 5 Phase × 35 tasks 的 successful run**（单项目单 change）
+- APPROVE 由父承担 / 服务单 change / 不写 harness-lab trace 的设计都**没出问题**，一次跑通到 Archive
+- [有限样本] **Risk 初步从 medium 降到 low-medium**——基于 **1 个项目 × 1 个 change × 5 Phase** 的 successful run；跨项目 / 跨 vertical 验证未做，所以保留"初步"限定。与 §9.6 的"未重新全量读 harness-lab"保持一致口径
+- [speculation] `fengshui-phase-coordinator.md` 可作为 reference implementation 直接引用，不用从 0 抽象——此判断依赖未来抽象者确认该文件的 vertical 特定假设（硬编码模型 / 单 change 服务域）能否被清晰剥离，当前未做可移植性审核
+
+### 9.4 Vertical-specific scorecard 维度
+
+Archive-Ready 用 **完整性 / 正确性 / 一致性** 三维，不是 `harness-verify` 的 6 维（`build_lint_typecheck / smoke_tests / runtime_invariants / structural_fidelity / verification_coverage / code_quality`）。
+
+**直接证据**：`docs/audit/2026-04-21_archive_ready_final.md` "总评" 表
+
+**新问题浮出**（[speculation] 基于单次 Archive 观察推断）：`harness-verify` 6 维**可能**覆盖不了"跨层常量语义对齐"（本次 Archive 提到 `SLUG / 6 必填字段 / DISCLAIMER 文案 / 11 错误码` 的语义一致性）这类业务级一致性。单次样本不足以证明通用缺口，仅作为方向性观察。
+
+[speculation] 可能需要**可扩展 scorecard schema**：6 个通用维度 + vertical 自定义扩展维度。E5 或独立 E6 可以考虑此方向。
+
+### 9.5 对 §6 优先级推荐的更新（不覆盖原文，只补增量）
+
+| E# | 原评估 | 新评估 | 主要依据 |
+|----|--------|--------|---------|
+| E2 phase-coordinator | multi-round / medium | multi-round / **low-medium** | 9.3 — 完整 5 Phase successful run |
+| E4 M2 启发式 | ✅ 已合（PR #19）| 可追加"LLM 确定性映射"低 ROI 反例 | 9.1 — W-VERIFY-NEW-1 |
+| E5 独立审计风险触发 | multi-round / medium | multi-round / medium（**新设计问题**：Phase-level vs Change-level 粒度） | 9.2 — Archive-Ready 用 general-purpose agent 而非 harness-verify |
+| [new] E6? Vertical scorecard 扩展 | — | 暂列为 speculation，等第二个 vertical 项目再决定是否立项 | 9.4 |
+
+**综合下一步建议**：
+1. **小增量**：把 W-VERIFY-NEW-1 的"LLM 确定性映射"反例追加到 UNIFIED-ROADMAP §M2 低 ROI 表（5 分钟）
+2. **中增量**：启动 E2，用 `fengshui-phase-coordinator.md` 作为 reference implementation
+3. **启动 E5 前先回答**：`harness-verify` 是否要分 Phase-level 和 Change-level 两档粒度？[speculation] 这个设计决策**可能**影响 E5 的实现边界——基于 §9.2 的单次观察推断，尚未经多项目验证
+
+### 9.6 本次更新的限制
+
+- 本节基于 2026-04-21 的 git log + Archive-Ready audit 报告 + OpenSpec specs 目录，未重新全量读 harness-lab
+- `.claude/harness-state.json` 在 fengshui-mvp 分支与 `2537e06` 一致（未新增 harness 轮次），18 commits 全部在推进 OpenSpec 的 Phase 1-5，不是 harness stage
+- [speculation] 若 Zero Magic 未来切换回 harness stage-7 节奏，会有新的 harness-lab trace 数据可用作 M2 candidate 对比
